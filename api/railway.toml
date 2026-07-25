@@ -1,0 +1,19 @@
+# railway.toml — API servisi
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand   = "node src/index.js"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+[[services]]
+name = "borsa-pro-api"
+
+[services.variables]
+PORT         = "3001"
+NODE_ENV     = "production"
+# Şunları Railway dashboard'dan ekle:
+# DATABASE_URL, JWT_SECRET, CLIENT_URL, REDIS_URL

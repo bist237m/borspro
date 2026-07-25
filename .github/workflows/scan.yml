@@ -1,0 +1,58 @@
+name: BIST Tarayıcı
+
+# Bu workflow senin "process flow"un — Railway Worker'ın yerine geçer.
+# Worker artık Python (borsapy kullanıyor).
+# Üç şekilde çalışır:
+#   1) Otomatik: Her iş günü (Pzt-Cum) saat 17:25 İstanbul'da → sync + scan
+#   2) Elle: GitHub > Actions sekmesinden "Run workflow"
+#   3) API'den: /api/jobs/scan veya /api/jobs/sync çağrıldığında
+
+on:
+  schedule:
+    - cron: '25 17 * * 1-5'
+      timezone: 'Europe/Istanbul'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Çalıştırılacak işlem'
+        required: false
+        default: 'full'
+        type: choice
+        options:
+          - full      # sync + scan
+          - scan      # sadece tarama
+          - sync      # sadece fiyat güncelleme
+          - history   # 1 yıllık geçmiş veri çek
+
+jobs:
+  tarama:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kodu çek
+        uses: actions/checkout@v4
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Bağımlılıkları yükle
+        working-directory: worker/python
+        run: pip install -r requirements.txt
+
+      - name: İşlemi çalıştır
+        working-directory: worker/python/src
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          ACTION="${{ github.event.inputs.action || 'full' }}"
+          echo "Çalıştırılıyor: $ACTION"
+          if [ "$ACTION" = "full" ]; then
+            python main.py --sync --scan
+          elif [ "$ACTION" = "scan" ]; then
+            python main.py --scan
+          elif [ "$ACTION" = "sync" ]; then
+            python main.py --sync
+          elif [ "$ACTION" = "history" ]; then
+            python main.py --history
+          fi

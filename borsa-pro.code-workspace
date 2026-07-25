@@ -1,0 +1,27 @@
+{
+  "folders": [
+    { "name": "📁 Root",     "path": "."          },
+    { "name": "🖥 Frontend", "path": "frontend"   },
+    { "name": "⚙️  API",     "path": "api"        },
+    { "name": "🔄 Worker",   "path": "worker"     }
+  ],
+  "settings": {
+    "editor.formatOnSave": true,
+    "editor.tabSize": 2,
+    "files.exclude": {
+      "**/node_modules": true,
+      "**/.git": true
+    },
+    "emmet.includeLanguages": { "javascript": "javascriptreact" }
+  },
+  "extensions": {
+    "recommendations": [
+      "esbenp.prettier-vscode",
+      "dbaeumer.vscode-eslint",
+      "bradlc.vscode-tailwindcss",
+      "dsznajder.es7-react-js-snippets",
+      "mtxr.sqltools",
+      "mtxr.sqltools-driver-pg"
+    ]
+  }
+}

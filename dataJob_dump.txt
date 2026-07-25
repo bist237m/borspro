@@ -1,0 +1,27 @@
+﻿// src/jobs/dataJob.js
+// dataQueue'daki fiyat gÃ¼ncelleme job'larÄ±nÄ± iÅŸler.
+
+import { dataQueue }                              from "../queues/index.js";
+import { fetchAndSyncAllStocks, fetchAllHistory } from "../services/dataFetcher.js";
+
+// TÃ¼m hisselerin anlÄ±k fiyatÄ±nÄ± gÃ¼ncelle
+dataQueue.process("sync_quotes", 1, async (job) => {
+  console.log(`\nğŸ“¡ [${new Date().toLocaleTimeString("tr-TR")}] Fiyat gÃ¼ncelleme baÅŸladÄ±`);
+  job.progress(10);
+  const result = await fetchAndSyncAllStocks();
+  job.progress(100);
+  return result;
+});
+
+// TÃ¼m hisselerin geÃ§miÅŸ verisini doldur
+dataQueue.process("sync_history", 1, async (job) => {
+  const { period = "1y" } = job.data || {};
+  console.log(`\nğŸ“… GeÃ§miÅŸ veri senkronizasyonu (${period}) baÅŸladÄ±`);
+  job.progress(5);
+  const result = await fetchAllHistory(period);
+  job.progress(100);
+  return result;
+});
+
+console.log("ğŸ”„ Data worker hazÄ±r (sync_quotes + sync_history)");
+

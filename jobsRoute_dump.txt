@@ -1,0 +1,111 @@
+﻿// api/src/routes/jobs.js
+// KullanÄ±cÄ±dan gelen on-demand tarama isteklerini queue'ya ekler.
+// Worker'a Redis Ã¼zerinden iletiÅŸim kurar.
+
+import { Router } from "express";
+import Bull       from "bull";
+import { authenticate } from "../middleware/authenticate.js";
+
+const REDIS = process.env.REDIS_URL || "redis://localhost:6379";
+
+const scanQueue = new Bull("scan",      { redis: REDIS });
+const dataQueue = new Bull("data-sync", { redis: REDIS });
+
+const router = Router();
+
+// POST /api/jobs/scan  â€” TÃ¼m BIST taramasÄ±nÄ± tetikle
+router.post("/scan", authenticate, async (req, res, next) => {
+  try {
+    // AynÄ± anda birden fazla full_scan Ã§alÄ±ÅŸmasÄ±nÄ± engelle
+    const active  = await scanQueue.getActive();
+    const waiting = await scanQueue.getWaiting();
+    const running = [...active, ...waiting].find(j => j.name === "full_scan");
+
+    if (running) {
+      const progress = await running.progress();
+      return res.json({
+        status:   "already_running",
+        jobId:    running.id,
+        progress: progress || 0,
+        message:  "Tarama zaten Ã§alÄ±ÅŸÄ±yor.",
+      });
+    }
+
+    const job = await scanQueue.add("full_scan", {
+      triggeredBy: req.user.id,
+      triggeredAt: new Date().toISOString(),
+    }, {
+      jobId:    `manual_scan_${Date.now()}`,
+      priority: 1,
+    });
+
+    res.status(202).json({
+      status:  "queued",
+      jobId:   job.id,
+      message: "Tarama kuyruÄŸa eklendi. /api/jobs/:id ile durumu takip edebilirsiniz.",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/jobs/sync  â€” Fiyat gÃ¼ncellemeyi tetikle
+router.post("/sync", authenticate, async (req, res, next) => {
+  try {
+    const active = await dataQueue.getActive();
+    const running = active.find(j => j.name === "sync_quotes");
+    if (running) {
+      return res.json({ status: "already_running", jobId: running.id });
+    }
+
+    const job = await dataQueue.add("sync_quotes", {}, { priority: 1 });
+    res.status(202).json({ status: "queued", jobId: job.id });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/jobs/:id?queue=scan  â€” Job durumu sorgula
+router.get("/:id", authenticate, async (req, res, next) => {
+  try {
+    const queueName = req.query.queue === "data" ? dataQueue : scanQueue;
+    const job       = await queueName.getJob(req.params.id);
+
+    if (!job) return res.status(404).json({ error: "Job bulunamadÄ±." });
+
+    const state    = await job.getState();
+    const progress = await job.progress();
+
+    res.json({
+      id:       job.id,
+      name:     job.name,
+      state,
+      progress,
+      result:   job.returnvalue,
+      failReason: job.failedReason,
+      createdAt:  new Date(job.timestamp).toISOString(),
+      finishedAt: job.finishedOn ? new Date(job.finishedOn).toISOString() : null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/jobs/status/overview  â€” Genel queue durumu
+router.get("/status/overview", authenticate, async (req, res, next) => {
+  try {
+    const [scanCounts, dataCounts] = await Promise.all([
+      scanQueue.getJobCounts(),
+      dataQueue.getJobCounts(),
+    ]);
+    res.json({
+      scan:     scanCounts,
+      dataSync: dataCounts,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+export default router;
+

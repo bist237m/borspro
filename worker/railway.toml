@@ -1,0 +1,16 @@
+# railway.toml — Worker servisi
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "node src/index.js"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5
+
+[[services]]
+name = "borsa-pro-worker"
+
+[services.variables]
+NODE_ENV = "production"
+# Şunları Railway dashboard'dan ekle:
+# DATABASE_URL, REDIS_URL
