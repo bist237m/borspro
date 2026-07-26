@@ -207,11 +207,15 @@ function CashModal({ portfolioId, onClose, onSuccess }) {
 }
 
 // ── ALIM/SATIM MODAL ───────────────────────────────────────
-function TxModal({ portfolioId, stocks, cashBalance, onClose, onSuccess }) {
+function TxModal({ portfolioId, stocks, cashBalance, initialSymbol, onClose, onSuccess }) {
   const [type,       setType]       = useState("buy");
-  const [symbol,     setSymbol]     = useState("");
+  const [symbol,     setSymbol]     = useState(initialSymbol || "");
+  const [stockSearch, setStockSearch] = useState("");
   const [quantity,   setQuantity]   = useState("");
-  const [price,      setPrice]      = useState("");
+  const [price,      setPrice]      = useState(() => {
+    const s = stocks?.find(s => s.symbol === initialSymbol);
+    return s?.price ? Number(s.price).toFixed(2) : "";
+  });
   const [commission, setCommission] = useState("0");
   const [notes,      setNotes]      = useState("");
   const [error,      setError]      = useState("");
@@ -228,7 +232,7 @@ function TxModal({ portfolioId, stocks, cashBalance, onClose, onSuccess }) {
       setError("Hisse, adet ve fiyat zorunludur."); return;
     }
     if (!selectedStock) { setError("Geçerli bir hisse seçin."); return; }
-    if (type === "buy" && total > Number(cashBalance || 0)) {
+    if (type === "buy" && total > Number(cashBalance || 0) + 0.01) {
       setError(`Yetersiz nakit bakiyesi. Gerekli: ₺${fmtN(total)}, mevcut: ₺${fmtN(cashBalance)}`);
       return;
     }
@@ -295,21 +299,59 @@ function TxModal({ portfolioId, stocks, cashBalance, onClose, onSuccess }) {
             <label style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>
               HİSSE
             </label>
-            <select value={symbol} onChange={e => {
-              setSymbol(e.target.value);
-              const s = stocks?.find(s => s.symbol === e.target.value);
-              if (s?.price) setPrice(Number(s.price).toFixed(2));
-            }} style={{
-              width: "100%", padding: "10px 12px", borderRadius: 8,
-              border: "1px solid var(--border)", background: "var(--bg)",
-              fontSize: 13, color: symbol ? "var(--text-1)" : "var(--text-3)",
-              fontFamily: "var(--font)", outline: "none",
-            }}>
-              <option value="">Hisse seçin...</option>
-              {(stocks || []).map(s => (
-                <option key={s.id} value={s.symbol}>{s.symbol} — {s.name}</option>
-              ))}
-            </select>
+            {symbol ? (
+              <div style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg)",
+              }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{symbol} — {selectedStock?.name}</span>
+                <button type="button" onClick={() => { setSymbol(""); setStockSearch(""); }} style={{
+                  background: "none", border: "none", color: "var(--text-3)", fontSize: 12, cursor: "pointer",
+                }}>Değiştir ✕</button>
+              </div>
+            ) : (
+              <>
+                <input
+                  type="text" value={stockSearch} onChange={e => setStockSearch(e.target.value)}
+                  placeholder="Hisse ara (kod ya da isim)..."
+                  style={{
+                    width: "100%", padding: "10px 12px", borderRadius: 8,
+                    border: "1px solid var(--border)", background: "var(--bg)",
+                    fontSize: 13, color: "var(--text-1)", fontFamily: "var(--font)", outline: "none",
+                  }}
+                  onFocus={e => e.target.style.borderColor = "var(--accent)"}
+                  onBlur={e  => e.target.style.borderColor = "var(--border)"}
+                />
+                {stockSearch && (
+                  <div style={{
+                    maxHeight: 180, overflowY: "auto", marginTop: 6,
+                    border: "1px solid var(--border)", borderRadius: 8,
+                  }}>
+                    {(stocks || [])
+                      .filter(s =>
+                        s.symbol.toUpperCase().includes(stockSearch.toUpperCase()) ||
+                        s.name.toLowerCase().includes(stockSearch.toLowerCase())
+                      )
+                      .slice(0, 30)
+                      .map(s => (
+                        <div key={s.id} onClick={() => {
+                          setSymbol(s.symbol);
+                          setStockSearch("");
+                          if (s.price) setPrice(Number(s.price).toFixed(2));
+                        }} style={{
+                          padding: "9px 12px", cursor: "pointer", fontSize: 13,
+                          borderBottom: "1px solid var(--border)",
+                        }}
+                          onMouseEnter={e => e.currentTarget.style.background = "var(--bg)"}
+                          onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                        >
+                          <b>{s.symbol}</b> <span style={{ color: "var(--text-3)", fontSize: 12 }}>— {s.name}</span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </>
+            )}
             {selectedStock?.price && (
               <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4, fontFamily: "var(--font-m)" }}>
                 Anlık: ₺{fmt(selectedStock.price)}
@@ -481,6 +523,7 @@ function CashRow({ tx }) {
 // ── ANA SAYFA ──────────────────────────────────────────────
 export default function PositionsPage() {
   const [showTxModal,   setShowTxModal]   = useState(false);
+  const [preselectSymbol, setPreselectSymbol] = useState("");
   const [showCashModal, setShowCashModal] = useState(false);
   const [tab, setTab] = useState("positions"); // positions | history | cash
 
@@ -556,15 +599,20 @@ export default function PositionsPage() {
         </div>
         <div className="pos-actions">
           <button onClick={() => setShowCashModal(true)} style={{
-            padding: "8px 18px", borderRadius: 8, border: "1px solid var(--accent)",
+            padding: "8px 18px", borderRadius: 999, border: "1px solid var(--accent)",
             background: "var(--accent-bg)", color: "var(--accent)",
             fontWeight: 600, fontSize: 13, cursor: "pointer",
             display: "flex", alignItems: "center", gap: 6,
           }}>
-            <span style={{ fontSize: 16 }}>💵</span> Nakit Yatır/Çek
+            <span style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              width: 22, height: 22, borderRadius: "50%", background: "var(--accent)",
+              fontSize: 12, flexShrink: 0,
+            }}>💵</span>
+            Nakit Yatır/Çek
           </button>
-          <button onClick={() => setShowTxModal(true)} style={{
-            padding: "8px 18px", borderRadius: 8, border: "none",
+          <button onClick={() => { setPreselectSymbol(""); setShowTxModal(true); }} style={{
+            padding: "8px 18px", borderRadius: 999, border: "none",
             background: "var(--accent)", color: "#fff",
             fontWeight: 600, fontSize: 13, cursor: "pointer",
             display: "flex", alignItems: "center", gap: 6,
@@ -573,7 +621,12 @@ export default function PositionsPage() {
             onMouseEnter={e => e.currentTarget.style.opacity = "0.87"}
             onMouseLeave={e => e.currentTarget.style.opacity = "1"}
           >
-            <span style={{ fontSize: 16 }}>+</span> İşlem Ekle
+            <span style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              width: 22, height: 22, borderRadius: "50%", background: "rgba(95, 220, 255, 0.25)",
+              fontSize: 14, fontWeight: 700, flexShrink: 0,
+            }}>+</span>
+            İşlem Ekle
           </button>
         </div>
       </div>
@@ -643,7 +696,7 @@ export default function PositionsPage() {
                         <td style={{ padding: "12px 14px" }}><Pill value={dayPnl} prefix="₺" /></td>
                         <td style={{ padding: "12px 14px" }}><Pill value={p.realized_pnl} prefix="₺" /></td>
                         <td style={{ padding: "12px 14px" }}>
-                          <button onClick={() => setShowTxModal(true)} style={{
+                          <button onClick={() => { setPreselectSymbol(p.symbol); setShowTxModal(true); }} style={{
                             background: "none", border: "1px solid var(--border)",
                             borderRadius: 6, padding: "4px 10px", fontSize: 11,
                             color: "var(--text-2)", cursor: "pointer",
@@ -750,6 +803,7 @@ export default function PositionsPage() {
           portfolioId={defaultPort?.id}
           stocks={stockList}
           cashBalance={cashBalance}
+          initialSymbol={preselectSymbol}
           onClose={() => setShowTxModal(false)}
           onSuccess={handleTxSuccess}
         />

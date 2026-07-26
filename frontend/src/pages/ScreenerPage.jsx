@@ -3,6 +3,7 @@ import { useState, useMemo } from "react";
 import { useApi } from "../hooks/useApi.js";
 import { stocks as stocksApi, jobs as jobsApi, signals as signalsApi, ai as aiApi } from "../api/client.js";
 import { FILTER_LABELS, FILTER_DEFINITIONS, parseFilterTypes } from "../constants/filterDefinitions.js";
+import { useAuth } from "../context/AuthContext.jsx";
 
 const fmt  = (n, d = 2) => n == null ? "—" : Number(n).toLocaleString("tr-TR", { minimumFractionDigits: d, maximumFractionDigits: d });
 const fmtB = (n) => {
@@ -66,10 +67,13 @@ function Spinner() {
 
 // ── HİSSE DETAY MODALI (teknik + temel + AI yorum) ──────────
 function StockDetailModal({ symbol, onClose }) {
+  const { user } = useAuth();
   const { data: detail } = useApi(() => stocksApi.get(symbol), [symbol]);
   const { data: filterData, loading: filterLoading } = useApi(() => stocksApi.filters(symbol), [symbol]);
   const { data: fundData, loading: fundLoading } = useApi(() => stocksApi.fundamentals(symbol), [symbol]);
   const { data: newsData, loading: newsLoading } = useApi(() => stocksApi.news(symbol), [symbol]);
+  const { data: extraFilters, loading: extraLoading } = useApi(() => stocksApi.extraFilters(symbol), [symbol]);
+
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult,  setAiResult]  = useState(null);
   const [aiError,   setAiError]   = useState(null);
@@ -160,6 +164,37 @@ function StockDetailModal({ symbol, onClose }) {
             )}
           </div>
 
+          {/* Ek Filtreler (Filtre 5 ve 6 — farklı zaman dilimleri) */}
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
+              Ek Filtreler
+            </div>
+            {extraLoading ? <Spinner /> : !extraFilters?.length ? (
+              <div style={{ fontSize: 13, color: "var(--text-3)" }}>Henüz ek filtre verisi yok.</div>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {extraFilters.map((f, i) => {
+                  const label = f.filter_code === "IFT5_EMA_MACD" ? "IFT5-EMA-MACD" : "EMA120";
+                  return (
+                    <div key={i} style={{
+                      background: f.result ? "var(--green-bg)" : "var(--bg)",
+                      border: `1px solid ${f.result ? "var(--green)" : "var(--border)"}`,
+                      borderRadius: 8, padding: "8px 12px",
+                      display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8,
+                    }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: f.result ? "var(--green)" : "var(--text-3)" }}>
+                        {label} <span style={{ fontFamily: "var(--font-m)", fontSize: 10, color: "var(--text-3)" }}>({f.timeframe})</span>
+                      </span>
+                      <span style={{ fontFamily: "var(--font-m)", fontSize: 10, fontWeight: 700, color: f.result ? "var(--green)" : "var(--text-3)" }}>
+                        {f.result ? "✓" : "—"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           {/* Temel veriler */}
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
@@ -214,51 +249,89 @@ function StockDetailModal({ symbol, onClose }) {
             )}
           </div>
 
-          {/* AI Yorumla — ChatGPT (OpenAI) üzerinden */}
-          <button onClick={handleAiComment} disabled={aiLoading} style={{
-            padding: "11px", borderRadius: 8, border: "none",
-            background: aiLoading ? "var(--bg)" : "var(--accent)",
-            color: aiLoading ? "var(--text-3)" : "#fff",
-            fontSize: 13, fontWeight: 600, cursor: aiLoading ? "not-allowed" : "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-          }}>
-            {aiLoading ? "AI analiz ediyor..." : "🤖 AI ile Yorumla"}
-          </button>
-
-          {aiError && (
-            <div style={{ padding: "9px 14px", borderRadius: 8, background: "var(--red-bg)", border: "1px solid var(--red)", fontSize: 12, color: "var(--red)" }}>
-              {aiError}
-            </div>
-          )}
-
-          {aiResult && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ display: "flex", gap: 8 }}>
-                <span style={{
-                  padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 700,
-                  background: aiResult.tavsiye === "AL" ? "var(--green-bg)" : aiResult.tavsiye === "SAT" ? "var(--red-bg)" : "var(--bg)",
-                  color: aiResult.tavsiye === "AL" ? "var(--green)" : aiResult.tavsiye === "SAT" ? "var(--red)" : "var(--text-2)",
-                }}>{aiResult.tavsiye}</span>
-                <span style={{
-                  padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600,
-                  background: "var(--bg)", color: "var(--text-2)", border: "1px solid var(--border)",
-                }}>Risk: {aiResult.risk_seviyesi}</span>
+          {user?.plan !== "pro" ? (
+            <div style={{
+              padding: "14px", borderRadius: 8, border: "1px dashed var(--border)",
+              background: "var(--bg)", textAlign: "center",
+            }}>
+              <div style={{ fontSize: 24, marginBottom: 6 }}>🔒</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-2)", marginBottom: 4 }}>
+                AI Yorum — Pro Özelliği
               </div>
-              {[
-                { label: "Temel Değerlendirme", text: aiResult.temel_degerlendirme },
-                { label: "Teknik Değerlendirme", text: aiResult.teknik_degerlendirme },
-                { label: "Geçmiş Performans Analizi", text: aiResult.gecmis_performans_analizi },
-                { label: "Genel Yorum", text: aiResult.genel_yorum },
-              ].map((s, i) => (
-                <div key={i}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 4 }}>{s.label}</div>
-                  <div style={{ fontSize: 13, color: "var(--text-1)", lineHeight: 1.5 }}>{s.text}</div>
+              <div style={{ fontSize: 12, color: "var(--text-3)" }}>
+                Bu özellik sadece Pro üyeler için kullanılabilir.
+              </div>
+            </div>
+          ) : (
+            <>
+              <button onClick={handleAiComment} disabled={aiLoading} style={{
+                padding: "11px", borderRadius: 8, border: "none",
+                background: aiLoading ? "var(--bg)" : "var(--accent)",
+                color: aiLoading ? "var(--text-3)" : "#fff",
+                fontSize: 13, fontWeight: 600, cursor: aiLoading ? "not-allowed" : "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              }}>
+                {aiLoading ? "AI analiz ediyor..." : "🤖 AI ile Yorumla"}
+              </button>
+
+              {aiError && (
+                <div style={{ padding: "9px 14px", borderRadius: 8, background: "var(--red-bg)", border: "1px solid var(--red)", fontSize: 12, color: "var(--red)" }}>
+                  {aiError}
                 </div>
-              ))}
-              <div style={{ fontSize: 10, color: "var(--text-3)", fontStyle: "italic" }}>
-                Bu içerik yapay zeka tarafından üretilmiştir, yatırım tavsiyesi değildir.
-              </div>
-            </div>
+              )}
+
+              {aiResult && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <span style={{
+                      padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 700,
+                      background: aiResult.tavsiye === "AL" ? "var(--green-bg)" : aiResult.tavsiye === "SAT" ? "var(--red-bg)" : "var(--bg)",
+                      color: aiResult.tavsiye === "AL" ? "var(--green)" : aiResult.tavsiye === "SAT" ? "var(--red)" : "var(--text-2)",
+                    }}>{aiResult.tavsiye}</span>
+                    <span style={{
+                      padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600,
+                      background: "var(--bg)", color: "var(--text-2)", border: "1px solid var(--border)",
+                    }}>Risk: {aiResult.risk_seviyesi}</span>
+                  </div>
+                  {[
+                    { label: "Finansal Sağlık", text: aiResult.finansal_saglik },
+                    { label: "Teknik-Temel Uyumu", text: aiResult.teknik_temel_uyumu },
+                    { label: "KAP Haberlerinin Etkisi", text: aiResult.kap_etkisi },
+                  ].map((s, i) => (
+                    <div key={i}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 4 }}>{s.label}</div>
+                      <div style={{ fontSize: 13, color: "var(--text-1)", lineHeight: 1.5 }}>{s.text}</div>
+                    </div>
+                  ))}
+
+                  {aiResult.riskler?.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--red)", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 4 }}>Riskler</div>
+                      <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 3 }}>
+                        {aiResult.riskler.map((r, i) => (
+                          <li key={i} style={{ fontSize: 13, color: "var(--text-1)", lineHeight: 1.4 }}>{r}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {aiResult.firsatlar?.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--green)", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 4 }}>Fırsatlar</div>
+                      <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 3 }}>
+                        {aiResult.firsatlar.map((f, i) => (
+                          <li key={i} style={{ fontSize: 13, color: "var(--text-1)", lineHeight: 1.4 }}>{f}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <div style={{ fontSize: 10, color: "var(--text-3)", fontStyle: "italic" }}>
+                    Bu içerik yapay zeka tarafından üretilmiştir, yatırım tavsiyesi değildir.
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

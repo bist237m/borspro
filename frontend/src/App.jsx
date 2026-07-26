@@ -11,6 +11,7 @@ import ChartsPage     from "./pages/ChartsPage.jsx";
 import TechnicalsPage from "./pages/TechnicalsPage.jsx";
 import ScreenerPage   from "./pages/ScreenerPage.jsx";
 import SettingsPage   from "./pages/SettingsPage.jsx";
+import ReportsPage    from "./pages/ReportsPage.jsx";
 
 // ── GLOBAL STYLES ──────────────────────────────────────────
 const G = `
@@ -59,6 +60,9 @@ const G = `
 
   html, body, #root { height: 100%; background: var(--bg); color: var(--text-1); font-family: var(--font); -webkit-font-smoothing: antialiased; }
   button { font-family: var(--font); cursor: pointer; }
+  input, select, textarea { color: var(--text-1); color-scheme: light dark; }
+  input::placeholder, textarea::placeholder { color: var(--text-3); }
+  input:-webkit-autofill { -webkit-box-shadow: 0 0 0px 1000px var(--surface) inset; -webkit-text-fill-color: var(--text-1); }
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-thumb { background: #CDD2DA; border-radius: 4px; }
   .fade { animation: fd 0.38s ease both; }
@@ -323,7 +327,8 @@ function Dashboard() {
           {active === "technicals" && <TechnicalsPage />}
           {active === "screener"    && <ScreenerPage />}
           {active === "settings"    && <SettingsPage />}
-          {!["overview","positions","watchlist","charts","technicals","screener","settings"].includes(active) && <Soon id={active} />}
+          {active === "reports"     && <ReportsPage />}
+          {!["overview","positions","watchlist","charts","technicals","screener","settings","reports"].includes(active) && <Soon id={active} />}
         </main>
         <footer style={{ borderTop: "1px solid var(--border)", padding: "8px 28px", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 4 }}>
           <span style={{ fontFamily: "var(--font-m)", fontSize: 10, color: "var(--text-3)" }}>© 2026 Borsa Pro Analytics — Yatırım tavsiyesi değildir</span>

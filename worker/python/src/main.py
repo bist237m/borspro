@@ -10,6 +10,7 @@ import sys
 from sync import run_sync_quotes
 from scan import run_full_scan
 from history import run_sync_history
+from extra_scan import run_extra_scan
 
 print("🚀 Borsa Pro Worker (Python) başladı\n")
 
@@ -26,5 +27,8 @@ if "--history" in args:
 
 if "--scan" in args:
     run_full_scan()
+
+if "--extra-scan" in args:
+    run_extra_scan()
 
 print("\n✅ İşlem tamamlandı.")

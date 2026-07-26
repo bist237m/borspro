@@ -1,11 +1,9 @@
 // src/pages/OverviewPage.jsx
 import { useState } from "react";
-import {
-  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from "recharts";
+import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { useApi } from "../hooks/useApi.js";
 import { portfolios as portfoliosApi, stocks as stocksApi } from "../api/client.js";
+import TradingViewChart from "../components/TradingViewChart.jsx";
 
 // ── SAYFAYA ÖZEL RESPONSIVE STİLLER ────────────────────────
 const OVERVIEW_STYLES = `
@@ -161,7 +159,6 @@ const SECTOR_COLORS = ["#1D4ED8","#0EA5E9","#6366F1","#8B5CF6","#EC4899","#94A3B
 
 // ── ANA SAYFA ──────────────────────────────────────────────
 export default function OverviewPage() {
-  const [period,   setPeriod]   = useState("3m");
   const [activeSec, setActiveSec] = useState(null);
 
   const { data: portList, loading: portLoading, error: portError } = useApi(
@@ -180,10 +177,6 @@ export default function OverviewPage() {
   );
 
   const firstStock = positions?.[0]?.symbol;
-  const { data: histData, loading: histLoading } = useApi(
-    () => firstStock ? stocksApi.history(firstStock, period) : Promise.resolve([]),
-    [firstStock, period]
-  );
 
   const totalValue   = positions?.reduce((s, p) => s + (Number(p.current_price) * Number(p.quantity)), 0) || 0;
   const totalCost    = positions?.reduce((s, p) => s + (Number(p.avg_cost) * Number(p.quantity)), 0) || 0;
@@ -234,44 +227,16 @@ export default function OverviewPage() {
           animationDelay: "320ms", background: "var(--surface)",
           border: "1px solid var(--border)", borderRadius: 10, padding: "20px 22px", minWidth: 0,
         }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
-            <div>
-              <SectionTitle title={`${firstStock || "Hisse"} Fiyat Geçmişi`} />
-              {histData?.length > 0 && (
-                <div style={{ marginTop: -8 }}>
-                  <Money value={histData[histData.length - 1]?.close} size={22} />
-                </div>
-              )}
-            </div>
-            <PeriodSelector value={period} onChange={setPeriod} />
+          <div style={{ marginBottom: 12 }}>
+            <SectionTitle title={`${firstStock || "Hisse"} Fiyat Geçmişi`} />
           </div>
-          {histLoading ? <LoadingCard height={200} /> : histData?.length > 0 ? (
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={histData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="var(--green)" stopOpacity={0.15}/>
-                    <stop offset="95%" stopColor="var(--green)" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false}/>
-                <XAxis dataKey="price_date"
-                  tickFormatter={d => new Date(d).toLocaleDateString("tr-TR",{day:"2-digit",month:"short"})}
-                  tick={{ fontSize: 10, fill: "var(--text-3)", fontFamily: "var(--font-m)" }}
-                  tickLine={false} axisLine={false}
-                  interval={Math.floor((histData?.length || 1) / 6)}/>
-                <YAxis tick={{ fontSize: 10, fill: "var(--text-3)", fontFamily: "var(--font-m)" }}
-                  tickLine={false} axisLine={false}
-                  tickFormatter={v => `₺${v}`} domain={["auto","auto"]}/>
-                <Tooltip content={<PerfTooltip />}/>
-                <Area type="monotone" dataKey="close"
-                  stroke="var(--green)" strokeWidth={2}
-                  fill="url(#grad)" dot={false} activeDot={{ r: 4, strokeWidth: 0 }}/>
-              </AreaChart>
-            </ResponsiveContainer>
+          {!firstStock ? (
+            <div style={{ height: 260, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-3)", fontSize: 13 }}>
+              Fiyat grafiği için portföyünüze hisse ekleyin.
+            </div>
           ) : (
-            <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-3)", fontSize: 13 }}>
-              Fiyat verisi bulunamadı. Portföyünüze hisse ekleyin.
+            <div style={{ height: 260 }}>
+              <TradingViewChart symbol={firstStock} height="100%" />
             </div>
           )}
         </div>

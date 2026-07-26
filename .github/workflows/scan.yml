@@ -19,10 +19,11 @@ on:
         default: 'full'
         type: choice
         options:
-          - full      # sync + scan
-          - scan      # sadece tarama
-          - sync      # sadece fiyat güncelleme
-          - history   # 1 yıllık geçmiş veri çek
+          - full        # sync + scan
+          - scan        # sadece tarama
+          - sync        # sadece fiyat güncelleme
+          - history     # 1 yıllık geçmiş veri çek
+          - extra_scan  # Filtre 5 ve 6 (uzun sürer)
 
 jobs:
   tarama:
@@ -55,4 +56,6 @@ jobs:
             python main.py --sync
           elif [ "$ACTION" = "history" ]; then
             python main.py --history
+          elif [ "$ACTION" = "extra_scan" ]; then
+            python main.py --extra-scan
           fi

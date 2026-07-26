@@ -1,11 +1,9 @@
 // src/pages/TechnicalsPage.jsx
 import { useState } from "react";
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from "recharts";
 import { useApi } from "../hooks/useApi.js";
 import { stocks as stocksApi } from "../api/client.js";
 import { FILTER_LABELS, FILTER_DEFINITIONS } from "../constants/filterDefinitions.js";
+import TradingViewChart from "../components/TradingViewChart.jsx";
 
 // ── FORMAT ────────────────────────────────────────────────
 const fmt = (n, d = 2) => n == null ? "—" : Number(n).toLocaleString("tr-TR", { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -102,14 +100,9 @@ function SimpleTooltip({ active, payload, label }) {
 export default function TechnicalsPage() {
   const [symbol, setSymbol] = useState("");
   const [search, setSearch] = useState("");
-  const [period, setPeriod] = useState("6m");
 
   const { data: stockList } = useApi(() => stocksApi.list(), []);
   const { data: stockDetail } = useApi(() => symbol ? stocksApi.get(symbol) : Promise.resolve(null), [symbol]);
-  const { data: history, loading: histLoading } = useApi(
-    () => symbol ? stocksApi.history(symbol, period) : Promise.resolve([]),
-    [symbol, period]
-  );
   const { data: filterData, loading: filterLoading } = useApi(
     () => symbol ? stocksApi.filters(symbol) : Promise.resolve(null),
     [symbol]
@@ -120,11 +113,6 @@ export default function TechnicalsPage() {
   ).slice(0, 40);
 
   const up = stockDetail ? Number(stockDetail.change_pct) >= 0 : true;
-
-  const PERIODS = [
-    { label: "3A", value: "3m" }, { label: "6A", value: "6m" },
-    { label: "1Y", value: "1y" }, { label: "Tüm", value: "all" },
-  ];
 
   return (
     <div className="ta-layout">
@@ -222,50 +210,17 @@ export default function TechnicalsPage() {
                   )}
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 4 }}>
-                {PERIODS.map(p => (
-                  <button key={p.value} onClick={() => setPeriod(p.value)} style={{
-                    padding: "4px 11px", borderRadius: 6, border: "1px solid",
-                    borderColor: period === p.value ? "var(--accent)" : "var(--border)",
-                    background: period === p.value ? "var(--accent-bg)" : "transparent",
-                    color: period === p.value ? "var(--accent)" : "var(--text-3)",
-                    fontFamily: "var(--font-m)", fontSize: 11, fontWeight: 500, cursor: "pointer",
-                  }}>{p.label}</button>
-                ))}
-              </div>
             </div>
 
             <div className="ta-grid">
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
-                {/* ── FİYAT GRAFİĞİ ── */}
-                <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--r)" }}>
+                {/* ── FİYAT GRAFİĞİ (TradingView) ── */}
+                <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--r)", overflow: "hidden" }}>
                   <PanelHeader title="Fiyat Geçmişi" />
-                  {histLoading ? <Spinner /> : (
-                    <div style={{ padding: "12px 8px 8px" }}>
-                      <ResponsiveContainer width="100%" height={220}>
-                        <AreaChart data={history || []} margin={{ top: 4, right: 8, left: -8, bottom: 0 }}>
-                          <defs>
-                            <linearGradient id="taGrad" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.18}/>
-                              <stop offset="95%" stopColor="var(--accent)" stopOpacity={0}/>
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid strokeDasharray="2 4" stroke="var(--border)" vertical={false} />
-                          <XAxis dataKey="price_date" tickFormatter={dateStr}
-                            tick={{ fontSize: 9, fill: "var(--text-3)", fontFamily: "var(--font-m)" }}
-                            tickLine={false} axisLine={false}
-                            interval={Math.max(Math.floor((history?.length || 1) / 7) - 1, 0)} />
-                          <YAxis tick={{ fontSize: 9, fill: "var(--text-3)", fontFamily: "var(--font-m)" }}
-                            tickLine={false} axisLine={false} width={52}
-                            tickFormatter={v => `₺${fmt(v,0)}`} domain={["auto","auto"]} />
-                          <Tooltip content={<SimpleTooltip />} />
-                          <Area type="monotone" dataKey="close" stroke="var(--accent)" strokeWidth={1.8}
-                            fill="url(#taGrad)" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )}
+                  <div style={{ height: 380 }}>
+                    <TradingViewChart symbol={symbol} height="100%" />
+                  </div>
                 </div>
 
                 {/* ── FİLTRE DURUMU ── */}

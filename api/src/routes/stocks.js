@@ -122,4 +122,21 @@ router.get("/:symbol/news", authenticate, async (req, res, next) => {
   }
 });
 
+// GET /api/stocks/:symbol/extra-filters — Filtre 5 ve 6 sonuçları
+router.get("/:symbol/extra-filters", authenticate, async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT efr.filter_code, efr.timeframe, efr.result, efr.updated_at
+       FROM extra_filter_results efr
+       JOIN stocks s ON s.id = efr.stock_id
+       WHERE s.symbol = $1
+       ORDER BY efr.filter_code, efr.timeframe`,
+      [req.params.symbol.toUpperCase()]
+    );
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
