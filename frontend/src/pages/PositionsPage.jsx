@@ -565,6 +565,7 @@ export default function PositionsPage() {
   const unrealizedPnl   = stockValue - totalCost;
   const unrealizedPct   = totalCost > 0 ? (unrealizedPnl / totalCost) * 100 : 0;
   const realizedPnl     = positions?.reduce((s, p) => s + Number(p.realized_pnl || 0), 0) || 0;
+  const totalPnl        = unrealizedPnl + realizedPnl;
   const dailyPnl        = positions?.reduce((s, p) => s + Number(p.current_price || 0) * Number(p.quantity) * (Number(p.change_pct || 0) / 100), 0) || 0;
 
   const loading = portLoading || posLoading;
@@ -575,6 +576,7 @@ export default function PositionsPage() {
 
       <div className="pos-kpi-row">
         <KpiCard label="Toplam Varlık"        value={`₺${fmtN(totalAssets)}`}    sub="Nakit + Hisse"                       up={null}                icon="🏦" delay={0}   />
+        <KpiCard label="Genel K/Z"           value={`${totalPnl >= 0 ? "+" : ""}₺${fmtN(totalPnl)}`} sub="Gerçekleşen + Gerçekleşmeyen" up={totalPnl >= 0} icon="💰" delay={20}  />
         <KpiCard label="Nakit Bakiyesi"       value={`₺${fmtN(cashBalance)}`}    sub={`${positions?.length || 0} pozisyon`} up={null}                icon="💵" delay={40}  />
         <KpiCard label="Gerçekleşmemiş K/Z"   value={`${unrealizedPnl >= 0 ? "+" : ""}₺${fmtN(unrealizedPnl)}`} sub={`${unrealizedPct >= 0 ? "+" : ""}${fmt(unrealizedPct)}%`} up={unrealizedPnl >= 0} icon="📊" delay={80}  />
         <KpiCard label="Gerçekleşmiş K/Z"     value={`${realizedPnl >= 0 ? "+" : ""}₺${fmtN(realizedPnl)}`}     sub="Tüm zamanlar"         up={realizedPnl >= 0}   icon="🎯" delay={120} />
@@ -599,34 +601,19 @@ export default function PositionsPage() {
         </div>
         <div className="pos-actions">
           <button onClick={() => setShowCashModal(true)} style={{
-            padding: "8px 18px", borderRadius: 999, border: "1px solid var(--accent)",
+            padding: "8px 18px", borderRadius: 8, border: "1px solid var(--accent)",
             background: "var(--accent-bg)", color: "var(--accent)",
             fontWeight: 600, fontSize: 13, cursor: "pointer",
             display: "flex", alignItems: "center", gap: 6,
           }}>
-            <span style={{
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              width: 22, height: 22, borderRadius: "50%", background: "var(--accent)",
-              fontSize: 12, flexShrink: 0,
-            }}>💵</span>
-            Nakit Yatır/Çek
+            <span style={{ fontSize: 16 }}>💵</span> Nakit Yatır/Çek
           </button>
           <button onClick={() => { setPreselectSymbol(""); setShowTxModal(true); }} style={{
-            padding: "8px 18px", borderRadius: 999, border: "none",
-            background: "var(--accent)", color: "#fff",
-            fontWeight: 600, fontSize: 13, cursor: "pointer",
-            display: "flex", alignItems: "center", gap: 6,
-            transition: "opacity 0.15s",
           }}
             onMouseEnter={e => e.currentTarget.style.opacity = "0.87"}
             onMouseLeave={e => e.currentTarget.style.opacity = "1"}
           >
-            <span style={{
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              width: 22, height: 22, borderRadius: "50%", background: "rgba(95, 220, 255, 0.25)",
-              fontSize: 14, fontWeight: 700, flexShrink: 0,
-            }}>+</span>
-            İşlem Ekle
+            <span style={{ fontSize: 16 }}>+</span> İşlem Ekle
           </button>
         </div>
       </div>

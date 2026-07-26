@@ -186,6 +186,8 @@ export default function OverviewPage() {
 
   const dailyPnl     = positions?.reduce((s, p) => s + (Number(p.current_price || 0) * Number(p.quantity) * (Number(p.change_pct || 0) / 100)), 0) || 0;
   const dailyPct     = totalValue > 0 ? ((dailyPnl / totalValue) * 100).toFixed(2) : "0.00";
+  const realizedPnl  = positions?.reduce((s, p) => s + Number(p.realized_pnl || 0), 0) || 0;
+  const totalPnl     = unrealizedPnl + realizedPnl;
 
   const sectorMap = {};
   positions?.forEach(p => {
@@ -213,6 +215,7 @@ export default function OverviewPage() {
         ) : (
           <>
             <KpiCard label="Portföy Değeri"     value={<Money value={totalValue} />}                    sub={`${posCount} pozisyon`}                             up={null}               icon="💼" delay={0}   />
+            <KpiCard label="Genel K/Z"          value={<Money value={totalPnl} sign />}                  sub="Gerçekleşen + Gerçekleşmeyen"                        up={totalPnl >= 0}      icon="💰" delay={40}  />
             <KpiCard label="Günlük K/Z"         value={<Money value={dailyPnl} sign />}                  sub={`${dailyPct >= 0 ? "+" : ""}${dailyPct}%`}          up={dailyPnl >= 0}      icon="📈" delay={80}  />
             <KpiCard label="Gerçekleşmemiş K/Z" value={<Money value={unrealizedPnl} sign />}             sub={`${unrealizedPct >= 0 ? "+" : ""}${unrealizedPct}%`} up={unrealizedPnl >= 0} icon="🎯" delay={160} />
             <KpiCard label="Açık Pozisyon"      value={<span style={{ fontFamily: "var(--font-d)", fontSize: 26 }}>{posCount}</span>} sub={`${sectorData.length} sektör`} up={null} icon="📊" delay={240} />
