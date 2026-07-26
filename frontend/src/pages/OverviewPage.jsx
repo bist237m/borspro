@@ -176,9 +176,16 @@ export default function OverviewPage() {
     () => stocksApi.list(), []
   );
 
+  const { data: cashHistory } = useApi(
+    () => defaultPort ? portfoliosApi.cashTransactions(defaultPort.id) : Promise.resolve([]),
+    [defaultPort?.id]
+  );
+
   const firstStock = positions?.[0]?.symbol;
 
   const totalValue   = positions?.reduce((s, p) => s + (Number(p.current_price) * Number(p.quantity)), 0) || 0;
+  const cashBalance  = Number(defaultPort?.cash_balance || 0);
+  const totalAssets  = totalValue + cashBalance;
   const totalCost    = positions?.reduce((s, p) => s + (Number(p.avg_cost) * Number(p.quantity)), 0) || 0;
   const unrealizedPnl = totalValue - totalCost;
   const unrealizedPct = totalCost > 0 ? ((unrealizedPnl / totalCost) * 100).toFixed(2) : "0.00";
@@ -186,8 +193,12 @@ export default function OverviewPage() {
 
   const dailyPnl     = positions?.reduce((s, p) => s + (Number(p.current_price || 0) * Number(p.quantity) * (Number(p.change_pct || 0) / 100)), 0) || 0;
   const dailyPct     = totalValue > 0 ? ((dailyPnl / totalValue) * 100).toFixed(2) : "0.00";
-  const realizedPnl  = positions?.reduce((s, p) => s + Number(p.realized_pnl || 0), 0) || 0;
-  const totalPnl     = unrealizedPnl + realizedPnl;
+
+  // "Yatırdığım para ne kadar büyüdü" — nakit yatır/çek geçmişine göre
+  const netDeposited = cashHistory?.reduce((s, tx) =>
+    s + (tx.type === "deposit" ? Number(tx.amount) : -Number(tx.amount)), 0) || 0;
+  const netGrowth    = totalAssets - netDeposited;
+  const netGrowthPct = netDeposited > 0 ? (netGrowth / netDeposited) * 100 : 0;
 
   const sectorMap = {};
   positions?.forEach(p => {
@@ -215,7 +226,7 @@ export default function OverviewPage() {
         ) : (
           <>
             <KpiCard label="Portföy Değeri"     value={<Money value={totalValue} />}                    sub={`${posCount} pozisyon`}                             up={null}               icon="💼" delay={0}   />
-            <KpiCard label="Genel K/Z"          value={<Money value={totalPnl} sign />}                  sub="Gerçekleşen + Gerçekleşmeyen"                        up={totalPnl >= 0}      icon="💰" delay={40}  />
+            <KpiCard label="Net Getiri"         value={<Money value={netGrowth} sign />}                 sub={netDeposited > 0 ? `${netGrowthPct >= 0 ? "+" : ""}${netGrowthPct.toFixed(2)}%` : "Henüz nakit yatırılmadı"} up={netGrowth >= 0} icon="💰" delay={40}  />
             <KpiCard label="Günlük K/Z"         value={<Money value={dailyPnl} sign />}                  sub={`${dailyPct >= 0 ? "+" : ""}${dailyPct}%`}          up={dailyPnl >= 0}      icon="📈" delay={80}  />
             <KpiCard label="Gerçekleşmemiş K/Z" value={<Money value={unrealizedPnl} sign />}             sub={`${unrealizedPct >= 0 ? "+" : ""}${unrealizedPct}%`} up={unrealizedPnl >= 0} icon="🎯" delay={160} />
             <KpiCard label="Açık Pozisyon"      value={<span style={{ fontFamily: "var(--font-d)", fontSize: 26 }}>{posCount}</span>} sub={`${sectorData.length} sektör`} up={null} icon="📊" delay={240} />

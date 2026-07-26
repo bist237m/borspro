@@ -566,6 +566,12 @@ export default function PositionsPage() {
   const unrealizedPct   = totalCost > 0 ? (unrealizedPnl / totalCost) * 100 : 0;
   const realizedPnl     = positions?.reduce((s, p) => s + Number(p.realized_pnl || 0), 0) || 0;
   const totalPnl        = unrealizedPnl + realizedPnl;
+
+  // "Yatırdığım para ne kadar büyüdü" — nakit yatır/çek geçmişine göre
+  const netDeposited = cashHistory?.reduce((s, tx) =>
+    s + (tx.type === "deposit" ? Number(tx.amount) : -Number(tx.amount)), 0) || 0;
+  const netGrowth    = totalAssets - netDeposited;
+  const netGrowthPct = netDeposited > 0 ? (netGrowth / netDeposited) * 100 : 0;
   const dailyPnl        = positions?.reduce((s, p) => s + Number(p.current_price || 0) * Number(p.quantity) * (Number(p.change_pct || 0) / 100), 0) || 0;
 
   const loading = portLoading || posLoading;
@@ -576,7 +582,7 @@ export default function PositionsPage() {
 
       <div className="pos-kpi-row">
         <KpiCard label="Toplam Varlık"        value={`₺${fmtN(totalAssets)}`}    sub="Nakit + Hisse"                       up={null}                icon="🏦" delay={0}   />
-        <KpiCard label="Genel K/Z"           value={`${totalPnl >= 0 ? "+" : ""}₺${fmtN(totalPnl)}`} sub="Gerçekleşen + Gerçekleşmeyen" up={totalPnl >= 0} icon="💰" delay={20}  />
+        <KpiCard label="Net Getiri"           value={`${netGrowth >= 0 ? "+" : ""}₺${fmtN(netGrowth)}`} sub={netDeposited > 0 ? `${netGrowthPct >= 0 ? "+" : ""}${fmt(netGrowthPct)}% (yatırılan nakite göre)` : "Henüz nakit yatırılmadı"} up={netGrowth >= 0} icon="💰" delay={20}  />
         <KpiCard label="Nakit Bakiyesi"       value={`₺${fmtN(cashBalance)}`}    sub={`${positions?.length || 0} pozisyon`} up={null}                icon="💵" delay={40}  />
         <KpiCard label="Gerçekleşmemiş K/Z"   value={`${unrealizedPnl >= 0 ? "+" : ""}₺${fmtN(unrealizedPnl)}`} sub={`${unrealizedPct >= 0 ? "+" : ""}${fmt(unrealizedPct)}%`} up={unrealizedPnl >= 0} icon="📊" delay={80}  />
         <KpiCard label="Gerçekleşmiş K/Z"     value={`${realizedPnl >= 0 ? "+" : ""}₺${fmtN(realizedPnl)}`}     sub="Tüm zamanlar"         up={realizedPnl >= 0}   icon="🎯" delay={120} />
