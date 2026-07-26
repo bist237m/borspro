@@ -1,6 +1,8 @@
 // src/App.jsx
 import { useState } from "react";
 import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
+import { useApi } from "./hooks/useApi.js";
+import { market as marketApi } from "./api/client.js";
 import LoginPage   from "./pages/LoginPage.jsx";
 import OverviewPage   from "./pages/OverviewPage.jsx";
 import PositionsPage  from "./pages/PositionsPage.jsx";
@@ -15,7 +17,6 @@ const G = `
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display&family=DM+Mono:wght@400;500&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  /* ── AÇIK TEMA (varsayılan) ── */
   :root {
     --bg:        #F5F6F8;
     --surface:   #FFFFFF;
@@ -38,7 +39,6 @@ const G = `
     --font-m:    'DM Mono', monospace;
   }
 
-  /* ── KOYU TEMA (sistem tercihine göre otomatik) ── */
   @media (prefers-color-scheme: dark) {
     :root {
       --bg:        #0B0E14;
@@ -64,31 +64,18 @@ const G = `
   .fade { animation: fd 0.38s ease both; }
   @keyframes fd { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
 
-  /* ── SIDEBAR — masaüstünde sabit, mobilde çekmece ── */
-  .sidebar {
-    width: var(--sidebar-w);
-    transition: transform 0.25s ease;
-  }
+  .sidebar { width: var(--sidebar-w); transition: transform 0.25s ease; }
   .hamburger-btn { display: none; }
   .overlay-backdrop { display: none; }
 
   @media (max-width: 860px) {
-    .sidebar {
-      transform: translateX(-100%);
-    }
-    .sidebar.open {
-      transform: translateX(0);
-    }
-    .main-content {
-      margin-left: 0 !important;
-    }
+    .sidebar { transform: translateX(-100%); }
+    .sidebar.open { transform: translateX(0); }
+    .main-content { margin-left: 0 !important; }
     .hamburger-btn { display: flex !important; }
     .overlay-backdrop.open {
-      display: block;
-      position: fixed;
-      inset: 0;
-      background: var(--overlay);
-      z-index: 90;
+      display: block; position: fixed; inset: 0;
+      background: var(--overlay); z-index: 90;
     }
     .header-search-text { display: none; }
     .header-title { font-size: 17px !important; }
@@ -166,7 +153,6 @@ function Sidebar({ active, onNav, mobileOpen, onClose }) {
             <div style={{ fontFamily: "var(--font-m)", fontSize: 9, color: "var(--text-3)", letterSpacing: "0.12em", marginTop: 2 }}>ANALİTİK</div>
           </div>
         </div>
-        {/* Mobilde kapatma butonu */}
         <button onClick={onClose} className="hamburger-btn" style={{
           background: "none", border: "none", color: "var(--text-2)", fontSize: 20,
         }}>✕</button>
@@ -222,13 +208,23 @@ function Sidebar({ active, onNav, mobileOpen, onClose }) {
 }
 
 // ── HEADER ─────────────────────────────────────────────────
-const TICKERS = [
-  { s:"BIST 100",v:"9.847",c:"+1.02%",up:true },{ s:"THYAO",v:"312,40",c:"+2.15%",up:true },
-  { s:"GARAN",v:"118,90",c:"+0.84%",up:true },{ s:"ASELS",v:"87,60",c:"-1.20%",up:false },
-  { s:"USD/TRY",v:"32,15",c:"+0.18%",up:true },{ s:"ALTIN",v:"2.847",c:"+0.74%",up:true },
-];
+const fmt = (n, d = 2) => n == null ? "—" : Number(n).toLocaleString("tr-TR", { minimumFractionDigits: d, maximumFractionDigits: d });
 
 function Header({ active, onMenuClick }) {
+  // Gerçek piyasa verisi — 15-30 dakikada bir worker'ın sync.py'si günceller
+  const { data: market } = useApi(() => marketApi.ticker(), []);
+
+  const tickerItems = market ? [
+    { s: "BIST 100", v: fmt(market.bist100_last, 2), c: fmt(market.bist100_change_pct), up: Number(market.bist100_change_pct) >= 0 },
+    { s: "USD/TRY",  v: fmt(market.usd_last, 4),      c: fmt(market.usd_change_pct),      up: Number(market.usd_change_pct) >= 0 },
+    { s: "ALTIN (gr)", v: fmt(market.gold_last, 2),   c: fmt(market.gold_change_pct),      up: Number(market.gold_change_pct) >= 0 },
+  ] : [];
+
+  // Yatırım tavsiyesi uyarısı — şeridin bir parçası olarak akıyor
+  const disclaimer = { disclaimer: true, text: "⚠ Bu uygulamadaki veriler ve sinyaller yatırım tavsiyesi niteliği taşımaz. Yatırım kararlarınızı kendi araştırmanıza dayanarak verin." };
+
+  const items = [...tickerItems, disclaimer, ...tickerItems, disclaimer];
+
   return (
     <>
       <header style={{
@@ -237,7 +233,6 @@ function Header({ active, onMenuClick }) {
         padding: "0 24px", position: "sticky", top: 0, zIndex: 50,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          {/* Hamburger — sadece mobilde görünür */}
           <button onClick={onMenuClick} className="hamburger-btn" style={{
             background: "none", border: "none", color: "var(--text-1)", fontSize: 20,
             alignItems: "center", justifyContent: "center", padding: 0,
@@ -268,12 +263,16 @@ function Header({ active, onMenuClick }) {
       {/* Ticker */}
       <div style={{ background: "var(--surface)", borderBottom: "1px solid var(--border)", height: 32, overflow: "hidden", display: "flex", alignItems: "center" }}>
         <style>{`@keyframes sc{from{transform:translateX(0)}to{transform:translateX(-50%)}}`}</style>
-        <div style={{ display: "flex", animation: "sc 26s linear infinite", whiteSpace: "nowrap" }}>
-          {[...TICKERS,...TICKERS].map((t,i) => (
+        <div style={{ display: "flex", animation: "sc 32s linear infinite", whiteSpace: "nowrap" }}>
+          {items.map((t, i) => t.disclaimer ? (
+            <div key={i} style={{ display: "inline-flex", alignItems: "center", padding: "0 24px", borderRight: "1px solid var(--border)" }}>
+              <span style={{ fontFamily: "var(--font-m)", fontSize: 11, color: "var(--text-3)", fontStyle: "italic" }}>{t.text}</span>
+            </div>
+          ) : (
             <div key={i} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "0 20px", borderRight: "1px solid var(--border)" }}>
               <span style={{ fontFamily: "var(--font-m)", fontSize: 11, fontWeight: 500, color: "var(--text-2)" }}>{t.s}</span>
               <span style={{ fontFamily: "var(--font-m)", fontSize: 11, color: "var(--text-1)" }}>{t.v}</span>
-              <span style={{ fontFamily: "var(--font-m)", fontSize: 11, color: t.up ? "var(--green)" : "var(--red)" }}>{t.up?"▲":"▼"} {t.c}</span>
+              <span style={{ fontFamily: "var(--font-m)", fontSize: 11, color: t.up ? "var(--green)" : "var(--red)" }}>{t.up?"▲":"▼"} {t.c}%</span>
             </div>
           ))}
         </div>
@@ -327,8 +326,8 @@ function Dashboard() {
           {!["overview","positions","watchlist","charts","technicals","screener","settings"].includes(active) && <Soon id={active} />}
         </main>
         <footer style={{ borderTop: "1px solid var(--border)", padding: "8px 28px", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 4 }}>
-          <span style={{ fontFamily: "var(--font-m)", fontSize: 10, color: "var(--text-3)" }}>© 2026 Borsa Pro Analytics</span>
-          <span style={{ fontFamily: "var(--font-m)", fontSize: 10, color: "var(--text-3)" }}>v3.0.0</span>
+          <span style={{ fontFamily: "var(--font-m)", fontSize: 10, color: "var(--text-3)" }}>© 2026 Borsa Pro Analytics — Yatırım tavsiyesi değildir</span>
+          <span style={{ fontFamily: "var(--font-m)", fontSize: 10, color: "var(--text-3)" }}>v3.1.0</span>
         </footer>
       </div>
     </div>

@@ -40,3 +40,4 @@ export const news       = { list: (p={}) => request("GET",`/news${p&&Object.keys
 export const calendar   = { list: (p={}) => request("GET",`/calendar${p&&Object.keys(p).length?"?"+new URLSearchParams(p):""}`) };
 export const jobs       = { scan: () => request("POST","/jobs/scan"), sync: () => request("POST","/jobs/sync"), status: () => request("GET","/jobs/status"), overview: () => request("GET","/jobs/status/overview") };
 export const signals    = { tracked: () => request("GET","/signals/tracked") };
+export const market      = { ticker: () => request("GET","/market/ticker") };
