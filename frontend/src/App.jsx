@@ -13,6 +13,8 @@ import ScreenerPage   from "./pages/ScreenerPage.jsx";
 const G = `
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display&family=DM+Mono:wght@400;500&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* ── AÇIK TEMA (varsayılan) ── */
   :root {
     --bg:        #F5F6F8;
     --surface:   #FFFFFF;
@@ -26,6 +28,7 @@ const G = `
     --green-bg:  #ECFDF5;
     --red:       #DC2626;
     --red-bg:    #FEF2F2;
+    --overlay:   rgba(17, 24, 39, 0.5);
     --sidebar-w: 220px;
     --header-h:  58px;
     --r:         10px;
@@ -33,12 +36,63 @@ const G = `
     --font-d:    'DM Serif Display', serif;
     --font-m:    'DM Mono', monospace;
   }
+
+  /* ── KOYU TEMA (sistem tercihine göre otomatik) ── */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:        #0B0E14;
+      --surface:   #131722;
+      --border:    #232838;
+      --text-1:    #E8EAED;
+      --text-2:    #9CA3AF;
+      --text-3:    #6B7280;
+      --accent:    #3B82F6;
+      --accent-bg: #1E293B;
+      --green:     #22C55E;
+      --green-bg:  #14251C;
+      --red:       #EF4444;
+      --red-bg:    #2A1616;
+      --overlay:   rgba(0, 0, 0, 0.6);
+    }
+  }
+
   html, body, #root { height: 100%; background: var(--bg); color: var(--text-1); font-family: var(--font); -webkit-font-smoothing: antialiased; }
   button { font-family: var(--font); cursor: pointer; }
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-thumb { background: #CDD2DA; border-radius: 4px; }
   .fade { animation: fd 0.38s ease both; }
   @keyframes fd { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+
+  /* ── SIDEBAR — masaüstünde sabit, mobilde çekmece ── */
+  .sidebar {
+    width: var(--sidebar-w);
+    transition: transform 0.25s ease;
+  }
+  .hamburger-btn { display: none; }
+  .overlay-backdrop { display: none; }
+
+  @media (max-width: 860px) {
+    .sidebar {
+      transform: translateX(-100%);
+    }
+    .sidebar.open {
+      transform: translateX(0);
+    }
+    .main-content {
+      margin-left: 0 !important;
+    }
+    .hamburger-btn { display: flex !important; }
+    .overlay-backdrop.open {
+      display: block;
+      position: fixed;
+      inset: 0;
+      background: var(--overlay);
+      z-index: 90;
+    }
+    .header-search-text { display: none; }
+    .header-title { font-size: 17px !important; }
+    main.dashboard-main { padding: 16px !important; }
+  }
 `;
 
 // ── NAV ────────────────────────────────────────────────────
@@ -81,34 +135,40 @@ function NavIcon({ d }) {
 }
 
 // ── SIDEBAR ────────────────────────────────────────────────
-function Sidebar({ active, onNav }) {
+function Sidebar({ active, onNav, mobileOpen, onClose }) {
   const { user, logout } = useAuth();
   const initials = user?.full_name?.split(" ").map(w => w[0]).join("").slice(0,2).toUpperCase() || "?";
 
   return (
-    <aside style={{
-      width: "var(--sidebar-w)", background: "var(--surface)",
+    <aside className={`sidebar${mobileOpen ? " open" : ""}`} style={{
+      background: "var(--surface)",
       borderRight: "1px solid var(--border)",
       position: "fixed", top: 0, left: 0, bottom: 0,
       display: "flex", flexDirection: "column", zIndex: 100,
     }}>
       <div style={{
         height: "var(--header-h)", borderBottom: "1px solid var(--border)",
-        display: "flex", alignItems: "center", padding: "0 18px", gap: 10,
+        display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 18px",
       }}>
-        <div style={{
-          width: 30, height: 30, borderRadius: 8, background: "var(--accent)",
-          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-        }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
-            <polyline points="16 7 22 7 22 13"/>
-          </svg>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{
+            width: 30, height: 30, borderRadius: 8, background: "var(--accent)",
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+          }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
+              <polyline points="16 7 22 7 22 13"/>
+            </svg>
+          </div>
+          <div>
+            <div style={{ fontFamily: "var(--font-d)", fontSize: 15, lineHeight: 1 }}>Borsa Pro</div>
+            <div style={{ fontFamily: "var(--font-m)", fontSize: 9, color: "var(--text-3)", letterSpacing: "0.12em", marginTop: 2 }}>ANALİTİK</div>
+          </div>
         </div>
-        <div>
-          <div style={{ fontFamily: "var(--font-d)", fontSize: 15, lineHeight: 1 }}>Borsa Pro</div>
-          <div style={{ fontFamily: "var(--font-m)", fontSize: 9, color: "var(--text-3)", letterSpacing: "0.12em", marginTop: 2 }}>ANALİTİK</div>
-        </div>
+        {/* Mobilde kapatma butonu */}
+        <button onClick={onClose} className="hamburger-btn" style={{
+          background: "none", border: "none", color: "var(--text-2)", fontSize: 20,
+        }}>✕</button>
       </div>
 
       <nav style={{ flex: 1, overflowY: "auto", padding: "10px 10px" }}>
@@ -120,7 +180,7 @@ function Sidebar({ active, onNav }) {
             {g.items.map(item => {
               const on = active === item.id;
               return (
-                <button key={item.id} onClick={() => onNav(item.id)} style={{
+                <button key={item.id} onClick={() => { onNav(item.id); onClose(); }} style={{
                   width: "100%", display: "flex", alignItems: "center", gap: 9,
                   padding: "8px 10px", borderRadius: 7, border: "none",
                   background: on ? "var(--accent-bg)" : "transparent",
@@ -167,7 +227,7 @@ const TICKERS = [
   { s:"USD/TRY",v:"32,15",c:"+0.18%",up:true },{ s:"ALTIN",v:"2.847",c:"+0.74%",up:true },
 ];
 
-function Header({ active }) {
+function Header({ active, onMenuClick }) {
   return (
     <>
       <header style={{
@@ -175,11 +235,18 @@ function Header({ active }) {
         display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: "0 24px", position: "sticky", top: 0, zIndex: 50,
       }}>
-        <h1 style={{ fontFamily: "var(--font-d)", fontSize: 20, fontWeight: 400 }}>{TITLES[active]}</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          {/* Hamburger — sadece mobilde görünür */}
+          <button onClick={onMenuClick} className="hamburger-btn" style={{
+            background: "none", border: "none", color: "var(--text-1)", fontSize: 20,
+            alignItems: "center", justifyContent: "center", padding: 0,
+          }}>☰</button>
+          <h1 className="header-title" style={{ fontFamily: "var(--font-d)", fontSize: 20, fontWeight: 400 }}>{TITLES[active]}</h1>
+        </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{
             display: "flex", alignItems: "center", gap: 5,
-            background: "var(--green-bg)", border: "1px solid #A7F3D0",
+            background: "var(--green-bg)", border: "1px solid var(--green)",
             borderRadius: 20, padding: "4px 12px",
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--green)", display: "inline-block" }}/>
@@ -193,7 +260,7 @@ function Header({ active }) {
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
             </svg>
-            <span style={{ fontFamily: "var(--font-m)", fontSize: 12, color: "var(--text-3)" }}>Hisse ara...</span>
+            <span className="header-search-text" style={{ fontFamily: "var(--font-m)", fontSize: 12, color: "var(--text-3)" }}>Hisse ara...</span>
           </div>
         </div>
       </header>
@@ -232,13 +299,23 @@ function Soon({ id }) {
 // ── DASHBOARD ──────────────────────────────────────────────
 function Dashboard() {
   const [active, setActive] = useState("overview");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
-      <Sidebar active={active} onNav={setActive} />
-      <div style={{ marginLeft: "var(--sidebar-w)", flex: 1, display: "flex", flexDirection: "column" }}>
-        <Header active={active} />
-        <main style={{ flex: 1, padding: "24px 28px", overflowY: "auto" }}>
+      <div
+        className={`overlay-backdrop${mobileNavOpen ? " open" : ""}`}
+        onClick={() => setMobileNavOpen(false)}
+      />
+      <Sidebar
+        active={active}
+        onNav={setActive}
+        mobileOpen={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+      />
+      <div className="main-content" style={{ marginLeft: "var(--sidebar-w)", flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        <Header active={active} onMenuClick={() => setMobileNavOpen(true)} />
+        <main className="dashboard-main" style={{ flex: 1, padding: "24px 28px", overflowY: "auto" }}>
           {active === "overview"   && <OverviewPage />}
           {active === "positions"  && <PositionsPage />}
           {active === "watchlist"  && <WatchlistPage />}
@@ -247,8 +324,8 @@ function Dashboard() {
           {active === "screener"    && <ScreenerPage />}
           {!["overview","positions","watchlist","charts","technicals","screener"].includes(active) && <Soon id={active} />}
         </main>
-        <footer style={{ borderTop: "1px solid var(--border)", padding: "8px 28px", display: "flex", justifyContent: "space-between" }}>
-          <span style={{ fontFamily: "var(--font-m)", fontSize: 10, color: "var(--text-3)" }}>© 2025 Borsa Pro Analytics</span>
+        <footer style={{ borderTop: "1px solid var(--border)", padding: "8px 28px", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 4 }}>
+          <span style={{ fontFamily: "var(--font-m)", fontSize: 10, color: "var(--text-3)" }}>© 2026 Borsa Pro Analytics</span>
           <span style={{ fontFamily: "var(--font-m)", fontSize: 10, color: "var(--text-3)" }}>v3.0.0</span>
         </footer>
       </div>
