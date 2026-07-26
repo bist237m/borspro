@@ -5,3 +5,8 @@ dist/
 build/
 *.log
 .vercel/
+
+worker/venv/
+worker/python/__pycache__/
+worker/python/src/__pycache__/
+*.pyc
