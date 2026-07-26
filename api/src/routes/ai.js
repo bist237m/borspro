@@ -146,6 +146,7 @@ SADECE aşağıdaki JSON formatında, başka hiçbir metin eklemeden cevap ver:
         ],
         response_format: { type: "json_object" },
         temperature: 0.4,
+        max_tokens: 1200,
       }),
     });
 

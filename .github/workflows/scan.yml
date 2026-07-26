@@ -1,15 +1,12 @@
 name: BIST Tarayıcı
 
-# Bu workflow senin "process flow"un — Railway Worker'ın yerine geçer.
-# Worker artık Python (borsapy kullanıyor).
-# Üç şekilde çalışır:
-#   1) Otomatik: Her iş günü (Pzt-Cum) saat 17:25 İstanbul'da → sync + scan
-#   2) Elle: GitHub > Actions sekmesinden "Run workflow"
-#   3) API'den: /api/jobs/scan veya /api/jobs/sync çağrıldığında
-
 on:
   schedule:
+    # Her iş günü 17:25 TRT — ana filtre taraması (sync + scan)
     - cron: '25 17 * * 1-5'
+      timezone: 'Europe/Istanbul'
+    # Her Pazar 20:00 TRT — temel veri + KAP haberleri (haftalık, daha seyrek)
+    - cron: '0 20 * * 0'
       timezone: 'Europe/Istanbul'
   workflow_dispatch:
     inputs:
@@ -19,11 +16,13 @@ on:
         default: 'full'
         type: choice
         options:
-          - full        # sync + scan
-          - scan        # sadece tarama
-          - sync        # sadece fiyat güncelleme
-          - history     # 1 yıllık geçmiş veri çek
-          - extra_scan  # Filtre 5 ve 6 (uzun sürer)
+          - full          # sync + scan
+          - scan          # sadece ana tarama
+          - sync          # sadece fiyat güncelleme
+          - history       # 1 yıllık geçmiş veri çek
+          - extra_scan    # Filtre 5 ve 6
+          - fundamentals  # temel + teknik veri (FAVÖK, RSI vb.)
+          - news          # KAP haberleri
 
 jobs:
   tarama:
@@ -46,8 +45,18 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          ACTION="${{ github.event.inputs.action || 'full' }}"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            if [ "${{ github.event.schedule }}" = "25 17 * * 1-5" ]; then
+              ACTION="full"
+            else
+              ACTION="weekly"
+            fi
+          else
+            ACTION="${{ github.event.inputs.action || 'full' }}"
+          fi
+
           echo "Çalıştırılıyor: $ACTION"
+
           if [ "$ACTION" = "full" ]; then
             python main.py --sync --scan
           elif [ "$ACTION" = "scan" ]; then
@@ -58,4 +67,10 @@ jobs:
             python main.py --history
           elif [ "$ACTION" = "extra_scan" ]; then
             python main.py --extra-scan
+          elif [ "$ACTION" = "fundamentals" ]; then
+            python main.py --fundamentals
+          elif [ "$ACTION" = "news" ]; then
+            python main.py --news
+          elif [ "$ACTION" = "weekly" ]; then
+            python main.py --fundamentals --news
           fi
