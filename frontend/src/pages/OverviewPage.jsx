@@ -7,18 +7,48 @@ import {
 import { useApi } from "../hooks/useApi.js";
 import { portfolios as portfoliosApi, stocks as stocksApi } from "../api/client.js";
 
+// ── SAYFAYA ÖZEL RESPONSIVE STİLLER ────────────────────────
+const OVERVIEW_STYLES = `
+  .kpi-row { display:flex; gap:14px; flex-wrap:wrap; }
+  .kpi-row > * { flex: 1 1 220px; }
+  .chart-row { display:grid; grid-template-columns: 2fr 1fr; gap:16px; }
+  .gainers-row { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+  @media (max-width: 780px) {
+    .chart-row { grid-template-columns: 1fr; }
+    .gainers-row { grid-template-columns: 1fr; }
+  }
+`;
+
+// ── PARA BİRİMİ FORMATLAMA ──────────────────────────────────
+const fmt = (n) => Number(n).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// ₺ simgesini ayrı bir fontla (DM Mono) render ediyoruz —
+// 'DM Serif Display' fontunda ₺ karakteri düzgün render olmuyor,
+// yedek fontla üst üste binip "üstü çizili" gibi görünüyordu.
+function Money({ value, size = 26, sign = false }) {
+  const n = Number(value);
+  const prefix = sign ? (n >= 0 ? "+" : "") : "";
+  return (
+    <span style={{ fontFamily: "var(--font-d)", fontSize: size }}>
+      {prefix}
+      <span style={{ fontFamily: "var(--font-m)" }}>₺</span>
+      {fmt(n)}
+    </span>
+  );
+}
+
 // ── YARDIMCI BİLEŞENLER ────────────────────────────────────
 
 function LoadingCard({ height = 120 }) {
   return (
     <div style={{
-      background: "#fff", border: "1px solid #E2E5EA", borderRadius: 10,
+      background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10,
       height, display: "flex", alignItems: "center", justifyContent: "center",
     }}>
       <div style={{ display: "flex", gap: 6 }}>
         {[0,1,2].map(i => (
           <div key={i} style={{
-            width: 6, height: 6, borderRadius: "50%", background: "#1D4ED8",
+            width: 6, height: 6, borderRadius: "50%", background: "var(--accent)",
             animation: `pulse 1s ease-in-out ${i * 0.2}s infinite`,
           }}/>
         ))}
@@ -31,8 +61,8 @@ function LoadingCard({ height = 120 }) {
 function ErrorCard({ msg }) {
   return (
     <div style={{
-      background: "#FEF2F2", border: "1px solid #FEE2E2", borderRadius: 10,
-      padding: 20, fontSize: 13, color: "#DC2626",
+      background: "var(--red-bg)", border: "1px solid var(--red)", borderRadius: 10,
+      padding: 20, fontSize: 13, color: "var(--red)",
     }}>⚠️ {msg}</div>
   );
 }
@@ -54,17 +84,17 @@ function SectionTitle({ title, action, onAction }) {
 function KpiCard({ label, value, sub, up, icon, delay }) {
   return (
     <div className="fade" style={{
-      animationDelay: `${delay}ms`, flex: 1, minWidth: 0,
-      background: "#fff", border: "1px solid #E2E5EA", borderRadius: 10,
+      animationDelay: `${delay}ms`, minWidth: 0,
+      background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10,
       padding: "20px 22px", position: "relative", overflow: "hidden",
     }}>
       <div style={{
         position: "absolute", top: 0, left: 0, right: 0, height: 3,
         background: up === true
-          ? "linear-gradient(90deg,#059669,transparent)"
+          ? "linear-gradient(90deg,var(--green),transparent)"
           : up === false
-          ? "linear-gradient(90deg,#DC2626,transparent)"
-          : "linear-gradient(90deg,#1D4ED8,transparent)",
+          ? "linear-gradient(90deg,var(--red),transparent)"
+          : "linear-gradient(90deg,var(--accent),transparent)",
         opacity: 0.5,
       }}/>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
@@ -77,7 +107,7 @@ function KpiCard({ label, value, sub, up, icon, delay }) {
           display: "flex", alignItems: "center", justifyContent: "center",
         }}>{icon}</span>
       </div>
-      <div style={{ fontFamily: "var(--font-d)", fontSize: 26, color: "var(--text-1)", marginBottom: 8 }}>
+      <div style={{ color: "var(--text-1)", marginBottom: 8 }}>
         {value}
       </div>
       <div style={{
@@ -86,7 +116,7 @@ function KpiCard({ label, value, sub, up, icon, delay }) {
         fontFamily: "var(--font-m)", fontWeight: 500,
         color: up === true ? "var(--green)" : up === false ? "var(--red)" : "var(--text-2)",
         background: up === true ? "var(--green-bg)" : up === false ? "var(--red-bg)" : "var(--bg)",
-        border: `1px solid ${up === true ? "#D1FAE5" : up === false ? "#FEE2E2" : "var(--border)"}`,
+        border: `1px solid ${up === true ? "var(--green)" : up === false ? "var(--red)" : "var(--border)"}`,
       }}>
         {up === true && "▲ "}{up === false && "▼ "}{sub}
       </div>
@@ -98,7 +128,7 @@ function PerfTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
   return (
     <div style={{
-      background: "#fff", border: "1px solid #E2E5EA",
+      background: "var(--surface)", border: "1px solid var(--border)",
       borderRadius: 8, padding: "8px 14px",
     }}>
       <div style={{ fontFamily: "var(--font-m)", fontSize: 11, color: "var(--text-3)", marginBottom: 2 }}>
@@ -106,9 +136,7 @@ function PerfTooltip({ active, payload }) {
           ? new Date(payload[0].payload.price_date).toLocaleDateString("tr-TR", { day: "2-digit", month: "short" })
           : payload[0]?.payload?.date}
       </div>
-      <div style={{ fontFamily: "var(--font-d)", fontSize: 16, color: "var(--text-1)" }}>
-        ₺{Number(payload[0].value).toLocaleString("tr-TR")}
-      </div>
+      <Money value={payload[0].value} size={16} />
     </div>
   );
 }
@@ -136,43 +164,36 @@ export default function OverviewPage() {
   const [period,   setPeriod]   = useState("3m");
   const [activeSec, setActiveSec] = useState(null);
 
-  // Portföyleri çek
   const { data: portList, loading: portLoading, error: portError } = useApi(
     () => portfoliosApi.list(), []
   );
 
   const defaultPort = portList?.find(p => p.is_default) || portList?.[0];
 
-  // Varsayılan portföyün pozisyonları
   const { data: positions, loading: posLoading } = useApi(
     () => defaultPort ? portfoliosApi.positions(defaultPort.id) : Promise.resolve([]),
     [defaultPort?.id]
   );
 
-  // Tüm aktif hisseler (kazanan/kaybeden için)
   const { data: stockList, loading: stocksLoading } = useApi(
     () => stocksApi.list(), []
   );
 
-  // Birinci hissenin fiyat geçmişini performans grafiği için kullan
   const firstStock = positions?.[0]?.symbol;
   const { data: histData, loading: histLoading } = useApi(
     () => firstStock ? stocksApi.history(firstStock, period) : Promise.resolve([]),
     [firstStock, period]
   );
 
-  // ── Hesaplamalar ──
   const totalValue   = positions?.reduce((s, p) => s + (Number(p.current_price) * Number(p.quantity)), 0) || 0;
   const totalCost    = positions?.reduce((s, p) => s + (Number(p.avg_cost) * Number(p.quantity)), 0) || 0;
   const unrealizedPnl = totalValue - totalCost;
   const unrealizedPct = totalCost > 0 ? ((unrealizedPnl / totalCost) * 100).toFixed(2) : "0.00";
   const posCount     = positions?.length || 0;
 
-  // Günlük K/Z (tüm pozisyonlarda change_pct ortalaması)
   const dailyPnl     = positions?.reduce((s, p) => s + (Number(p.current_price || 0) * Number(p.quantity) * (Number(p.change_pct || 0) / 100)), 0) || 0;
   const dailyPct     = totalValue > 0 ? ((dailyPnl / totalValue) * 100).toFixed(2) : "0.00";
 
-  // Sektör dağılımı
   const sectorMap = {};
   positions?.forEach(p => {
     const sec = p.sector || "Diğer";
@@ -182,48 +203,43 @@ export default function OverviewPage() {
     name, value: totalValue > 0 ? Math.round((val / totalValue) * 100) : 0,
   }));
 
-  // Kazanan / Kaybeden hisseler
   const sorted  = [...(stockList || [])].filter(s => s.change_pct != null);
   const gainers = [...sorted].sort((a, b) => b.change_pct - a.change_pct).slice(0, 5);
   const losers  = [...sorted].sort((a, b) => a.change_pct - b.change_pct).slice(0, 5);
-
-  const fmt = (n) => Number(n).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   if (portError) return <ErrorCard msg={portError} />;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <style>{OVERVIEW_STYLES}</style>
 
       {/* KPI Satırı */}
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+      <div className="kpi-row">
         {portLoading || posLoading ? (
           [0,1,2,3].map(i => <LoadingCard key={i} height={110} />)
         ) : (
           <>
-            <KpiCard label="Portföy Değeri"  value={`₺${fmt(totalValue)}`}    sub={`${posCount} pozisyon`}           up={null}              icon="💼" delay={0}   />
-            <KpiCard label="Günlük K/Z"      value={`${dailyPnl >= 0 ? "+" : ""}₺${fmt(dailyPnl)}`} sub={`${dailyPct >= 0 ? "+" : ""}${dailyPct}%`} up={dailyPnl >= 0}  icon="📈" delay={80}  />
-            <KpiCard label="Gerçekleşmemiş K/Z" value={`${unrealizedPnl >= 0 ? "+" : ""}₺${fmt(unrealizedPnl)}`} sub={`${unrealizedPct >= 0 ? "+" : ""}${unrealizedPct}%`} up={unrealizedPnl >= 0} icon="🎯" delay={160} />
-            <KpiCard label="Açık Pozisyon"   value={String(posCount)}          sub={`${sectorData.length} sektör`}  up={null}              icon="📊" delay={240} />
+            <KpiCard label="Portföy Değeri"     value={<Money value={totalValue} />}                    sub={`${posCount} pozisyon`}                             up={null}               icon="💼" delay={0}   />
+            <KpiCard label="Günlük K/Z"         value={<Money value={dailyPnl} sign />}                  sub={`${dailyPct >= 0 ? "+" : ""}${dailyPct}%`}          up={dailyPnl >= 0}      icon="📈" delay={80}  />
+            <KpiCard label="Gerçekleşmemiş K/Z" value={<Money value={unrealizedPnl} sign />}             sub={`${unrealizedPct >= 0 ? "+" : ""}${unrealizedPct}%`} up={unrealizedPnl >= 0} icon="🎯" delay={160} />
+            <KpiCard label="Açık Pozisyon"      value={<span style={{ fontFamily: "var(--font-d)", fontSize: 26 }}>{posCount}</span>} sub={`${sectorData.length} sektör`} up={null} icon="📊" delay={240} />
           </>
         )}
       </div>
 
       {/* Grafik Satırı */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16 }}>
+      <div className="chart-row">
 
-        {/* Performans Grafiği */}
         <div className="fade" style={{
-          animationDelay: "320ms", background: "#fff",
-          border: "1px solid #E2E5EA", borderRadius: 10, padding: "20px 22px",
+          animationDelay: "320ms", background: "var(--surface)",
+          border: "1px solid var(--border)", borderRadius: 10, padding: "20px 22px", minWidth: 0,
         }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
             <div>
               <SectionTitle title={`${firstStock || "Hisse"} Fiyat Geçmişi`} />
               {histData?.length > 0 && (
-                <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: -8 }}>
-                  <span style={{ fontFamily: "var(--font-d)", fontSize: 22 }}>
-                    ₺{fmt(histData[histData.length - 1]?.close)}
-                  </span>
+                <div style={{ marginTop: -8 }}>
+                  <Money value={histData[histData.length - 1]?.close} size={22} />
                 </div>
               )}
             </div>
@@ -234,22 +250,22 @@ export default function OverviewPage() {
               <AreaChart data={histData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#059669" stopOpacity={0.15}/>
-                    <stop offset="95%" stopColor="#059669" stopOpacity={0}/>
+                    <stop offset="5%"  stopColor="var(--green)" stopOpacity={0.15}/>
+                    <stop offset="95%" stopColor="var(--green)" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#F0F2F5" vertical={false}/>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false}/>
                 <XAxis dataKey="price_date"
                   tickFormatter={d => new Date(d).toLocaleDateString("tr-TR",{day:"2-digit",month:"short"})}
-                  tick={{ fontSize: 10, fill: "#9CA3AF", fontFamily: "var(--font-m)" }}
+                  tick={{ fontSize: 10, fill: "var(--text-3)", fontFamily: "var(--font-m)" }}
                   tickLine={false} axisLine={false}
                   interval={Math.floor((histData?.length || 1) / 6)}/>
-                <YAxis tick={{ fontSize: 10, fill: "#9CA3AF", fontFamily: "var(--font-m)" }}
+                <YAxis tick={{ fontSize: 10, fill: "var(--text-3)", fontFamily: "var(--font-m)" }}
                   tickLine={false} axisLine={false}
                   tickFormatter={v => `₺${v}`} domain={["auto","auto"]}/>
                 <Tooltip content={<PerfTooltip />}/>
                 <Area type="monotone" dataKey="close"
-                  stroke="#059669" strokeWidth={2}
+                  stroke="var(--green)" strokeWidth={2}
                   fill="url(#grad)" dot={false} activeDot={{ r: 4, strokeWidth: 0 }}/>
               </AreaChart>
             </ResponsiveContainer>
@@ -260,10 +276,9 @@ export default function OverviewPage() {
           )}
         </div>
 
-        {/* Sektör Dağılımı */}
         <div className="fade" style={{
-          animationDelay: "400ms", background: "#fff",
-          border: "1px solid #E2E5EA", borderRadius: 10, padding: "20px 22px",
+          animationDelay: "400ms", background: "var(--surface)",
+          border: "1px solid var(--border)", borderRadius: 10, padding: "20px 22px", minWidth: 0,
         }}>
           <SectionTitle title="Sektör Dağılımı" />
           {posLoading ? <LoadingCard height={140} /> : sectorData.length > 0 ? (
@@ -307,22 +322,23 @@ export default function OverviewPage() {
       </div>
 
       {/* Kazanan / Kaybeden */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <div className="gainers-row">
         {[
           { title: "En Çok Kazanan", list: gainers, up: true  },
           { title: "En Çok Kaybeden", list: losers, up: false },
         ].map(({ title, list, up }) => (
           <div key={title} className="fade" style={{
-            animationDelay: "480ms", background: "#fff",
-            border: "1px solid #E2E5EA", borderRadius: 10, padding: "20px 22px",
+            animationDelay: "480ms", background: "var(--surface)",
+            border: "1px solid var(--border)", borderRadius: 10, padding: "20px 22px", minWidth: 0,
           }}>
             <SectionTitle title={title} />
             {stocksLoading ? <LoadingCard height={180} /> : list.length > 0 ? list.map((s, i) => (
               <div key={i} style={{
                 display: "flex", alignItems: "center", justifyContent: "space-between",
                 padding: "9px 0", borderBottom: i < list.length - 1 ? "1px solid var(--border)" : "none",
+                gap: 8,
               }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                   <div style={{
                     width: 34, height: 34, borderRadius: 8, flexShrink: 0,
                     background: up ? "var(--green-bg)" : "var(--red-bg)",
@@ -330,12 +346,12 @@ export default function OverviewPage() {
                     fontFamily: "var(--font-m)", fontSize: 10, fontWeight: 600,
                     color: up ? "var(--green)" : "var(--red)",
                   }}>{s.symbol?.slice(0,3)}</div>
-                  <div>
+                  <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 13 }}>{s.symbol}</div>
-                    <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 1 }}>{s.name}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</div>
                   </div>
                 </div>
-                <div style={{ textAlign: "right" }}>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
                   <div style={{ fontFamily: "var(--font-m)", fontSize: 13, fontWeight: 500 }}>
                     ₺{fmt(s.price)}
                   </div>

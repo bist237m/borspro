@@ -16,7 +16,7 @@ function Pill({ value, prefix = "" }) {
       color: up ? "var(--green)" : "var(--red)",
       background: up ? "var(--green-bg)" : "var(--red-bg)",
       padding: "2px 8px", borderRadius: 20,
-      border: `1px solid ${up ? "#D1FAE5" : "#FEE2E2"}`,
+      border: `1px solid ${up ? "var(--green)" : "var(--red)"}`,
       whiteSpace: "nowrap",
     }}>
       {up ? "▲" : "▼"} {prefix}{Math.abs(v) < 0.01 ? "0.00" : fmt(Math.abs(v))}
@@ -50,10 +50,18 @@ function Card({ children, style = {}, delay = 0 }) {
   );
 }
 
+// ── RESPONSIVE STİLLER ─────────────────────────────────────
+const POS_STYLES = `
+  .pos-kpi-row { display:flex; gap:14px; flex-wrap:wrap; }
+  .pos-kpi-row > * { flex: 1 1 210px; }
+  .pos-toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+  .pos-actions { display:flex; gap:8px; flex-wrap:wrap; }
+`;
+
 // ── KPI KARTI ──────────────────────────────────────────────
 function KpiCard({ label, value, sub, up, icon, delay }) {
   return (
-    <Card delay={delay} style={{ padding: "18px 22px", flex: 1, minWidth: 0, position: "relative", overflow: "hidden" }}>
+    <Card delay={delay} style={{ padding: "18px 22px", minWidth: 0, position: "relative", overflow: "hidden" }}>
       <div style={{
         position: "absolute", top: 0, left: 0, right: 0, height: 3,
         background: up === true
@@ -81,7 +89,7 @@ function KpiCard({ label, value, sub, up, icon, delay }) {
         borderRadius: 20, fontSize: 11, fontFamily: "var(--font-m)", fontWeight: 500,
         color: up === true ? "var(--green)" : up === false ? "var(--red)" : "var(--text-2)",
         background: up === true ? "var(--green-bg)" : up === false ? "var(--red-bg)" : "var(--bg)",
-        border: `1px solid ${up === true ? "#D1FAE5" : up === false ? "#FEE2E2" : "var(--border)"}`,
+        border: `1px solid ${up === true ? "var(--green)" : up === false ? "var(--red)" : "var(--border)"}`,
       }}>
         {up === true && "▲ "}{up === false && "▼ "}{sub}
       </div>
@@ -89,8 +97,117 @@ function KpiCard({ label, value, sub, up, icon, delay }) {
   );
 }
 
+// ── NAKİT YATIR / ÇEK MODAL ─────────────────────────────────
+function CashModal({ portfolioId, onClose, onSuccess }) {
+  const [type,   setType]   = useState("deposit");
+  const [amount, setAmount] = useState("");
+  const [notes,  setNotes]  = useState("");
+  const [error,  setError]  = useState("");
+
+  const { mutate, loading } = useMutation((tx) => portApi.addCash(portfolioId, tx));
+
+  async function handleSubmit() {
+    if (!amount || Number(amount) <= 0) {
+      setError("Geçerli bir tutar girin."); return;
+    }
+    setError("");
+    try {
+      await mutate({ type, amount: Number(amount), notes });
+      onSuccess();
+      onClose();
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 200,
+      background: "var(--overlay)", backdropFilter: "blur(2px)",
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+    }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{
+        background: "var(--surface)", borderRadius: 14, width: "100%", maxWidth: 400,
+        boxShadow: "0 20px 60px rgba(0,0,0,0.18)",
+        animation: "popIn 0.22s cubic-bezier(0.34,1.56,0.64,1) both",
+      }}>
+        <style>{`@keyframes popIn{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:scale(1)}}`}</style>
+
+        <div style={{ padding: "18px 22px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontFamily: "var(--font-d)", fontSize: 17 }}>Nakit İşlemi</span>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 18, color: "var(--text-3)", cursor: "pointer" }}>✕</button>
+        </div>
+
+        <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 16 }}>
+
+          <div style={{ display: "flex", gap: 0, background: "var(--bg)", borderRadius: 8, padding: 3 }}>
+            {["deposit","withdraw"].map(t => (
+              <button key={t} onClick={() => setType(t)} style={{
+                flex: 1, padding: "8px", borderRadius: 6, border: "none",
+                background: type === t ? "var(--surface)" : "transparent",
+                color: type === t ? (t === "deposit" ? "var(--green)" : "var(--red)") : "var(--text-3)",
+                fontWeight: 600, fontSize: 13, cursor: "pointer",
+                boxShadow: type === t ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
+                transition: "all 0.15s",
+              }}>{t === "deposit" ? "▲ Nakit Yatır" : "▼ Nakit Çek"}</button>
+            ))}
+          </div>
+
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>
+              TUTAR ₺
+            </label>
+            <input type="number" min="0" step="0.01"
+              value={amount} onChange={e => setAmount(e.target.value)}
+              placeholder="0.00" autoFocus
+              style={{
+                width: "100%", padding: "10px 12px", borderRadius: 8,
+                border: "1px solid var(--border)", background: "var(--bg)",
+                fontSize: 15, fontFamily: "var(--font-m)", outline: "none",
+              }}
+              onFocus={e => e.target.style.borderColor = "var(--accent)"}
+              onBlur={e  => e.target.style.borderColor = "var(--border)"}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>
+              NOT
+            </label>
+            <input type="text" value={notes} onChange={e => setNotes(e.target.value)}
+              placeholder="İsteğe bağlı not..."
+              style={{
+                width: "100%", padding: "10px 12px", borderRadius: 8,
+                border: "1px solid var(--border)", background: "var(--bg)",
+                fontSize: 13, fontFamily: "var(--font)", outline: "none",
+              }}
+              onFocus={e => e.target.style.borderColor = "var(--accent)"}
+              onBlur={e  => e.target.style.borderColor = "var(--border)"}
+            />
+          </div>
+
+          {error && (
+            <div style={{ padding: "10px 14px", borderRadius: 8, background: "var(--red-bg)", border: "1px solid var(--red)", fontSize: 13, color: "var(--red)" }}>
+              {error}
+            </div>
+          )}
+
+          <button onClick={handleSubmit} disabled={loading} style={{
+            padding: "11px", borderRadius: 8, border: "none",
+            background: loading ? "var(--bg)" : type === "deposit" ? "var(--green)" : "var(--red)",
+            color: loading ? "var(--text-3)" : "#fff",
+            fontSize: 14, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer",
+          }}>
+            {loading ? "İşleniyor..." : type === "deposit" ? "▲ Yatır" : "▼ Çek"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── ALIM/SATIM MODAL ───────────────────────────────────────
-function TxModal({ portfolioId, stocks, onClose, onSuccess }) {
+function TxModal({ portfolioId, stocks, cashBalance, onClose, onSuccess }) {
   const [type,       setType]       = useState("buy");
   const [symbol,     setSymbol]     = useState("");
   const [quantity,   setQuantity]   = useState("");
@@ -104,12 +221,17 @@ function TxModal({ portfolioId, stocks, onClose, onSuccess }) {
   );
 
   const selectedStock = stocks?.find(s => s.symbol === symbol);
+  const total = (Number(quantity || 0) * Number(price || 0) + Number(commission || 0));
 
   async function handleSubmit() {
     if (!symbol || !quantity || !price) {
       setError("Hisse, adet ve fiyat zorunludur."); return;
     }
     if (!selectedStock) { setError("Geçerli bir hisse seçin."); return; }
+    if (type === "buy" && total > Number(cashBalance || 0)) {
+      setError(`Yetersiz nakit bakiyesi. Gerekli: ₺${fmtN(total)}, mevcut: ₺${fmtN(cashBalance)}`);
+      return;
+    }
     setError("");
     try {
       await mutate({
@@ -127,22 +249,20 @@ function TxModal({ portfolioId, stocks, onClose, onSuccess }) {
     }
   }
 
-  const total = (Number(quantity || 0) * Number(price || 0) + Number(commission || 0)).toFixed(2);
-
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 200,
-      background: "rgba(0,0,0,0.35)", backdropFilter: "blur(2px)",
+      background: "var(--overlay)", backdropFilter: "blur(2px)",
       display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
     }} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{
         background: "var(--surface)", borderRadius: 14, width: "100%", maxWidth: 460,
         boxShadow: "0 20px 60px rgba(0,0,0,0.18)",
         animation: "popIn 0.22s cubic-bezier(0.34,1.56,0.64,1) both",
+        maxHeight: "90vh", overflowY: "auto",
       }}>
         <style>{`@keyframes popIn{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:scale(1)}}`}</style>
 
-        {/* Başlık */}
         <div style={{ padding: "18px 22px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ fontFamily: "var(--font-d)", fontSize: 17 }}>İşlem Ekle</span>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 18, color: "var(--text-3)", cursor: "pointer" }}>✕</button>
@@ -150,7 +270,14 @@ function TxModal({ portfolioId, stocks, onClose, onSuccess }) {
 
         <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 16 }}>
 
-          {/* Alım / Satım seçici */}
+          <div style={{
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            background: "var(--bg)", borderRadius: 8, padding: "8px 12px",
+          }}>
+            <span style={{ fontSize: 12, color: "var(--text-3)" }}>Kullanılabilir Nakit</span>
+            <span style={{ fontFamily: "var(--font-m)", fontSize: 13, fontWeight: 600 }}>₺{fmtN(cashBalance)}</span>
+          </div>
+
           <div style={{ display: "flex", gap: 0, background: "var(--bg)", borderRadius: 8, padding: 3 }}>
             {["buy","sell"].map(t => (
               <button key={t} onClick={() => setType(t)} style={{
@@ -164,7 +291,6 @@ function TxModal({ portfolioId, stocks, onClose, onSuccess }) {
             ))}
           </div>
 
-          {/* Hisse Seç */}
           <div>
             <label style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>
               HİSSE
@@ -194,7 +320,6 @@ function TxModal({ portfolioId, stocks, onClose, onSuccess }) {
             )}
           </div>
 
-          {/* Adet & Fiyat */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             {[
               { label: "ADET",    val: quantity,   set: setQuantity,   ph: "100",    step: "1"    },
@@ -211,7 +336,6 @@ function TxModal({ portfolioId, stocks, onClose, onSuccess }) {
                     width: "100%", padding: "10px 12px", borderRadius: 8,
                     border: "1px solid var(--border)", background: "var(--bg)",
                     fontSize: 13, fontFamily: "var(--font-m)", outline: "none",
-                    transition: "border-color 0.15s",
                   }}
                   onFocus={e  => e.target.style.borderColor = "var(--accent)"}
                   onBlur={e   => e.target.style.borderColor = "var(--border)"}
@@ -220,7 +344,6 @@ function TxModal({ portfolioId, stocks, onClose, onSuccess }) {
             ))}
           </div>
 
-          {/* Komisyon & Not */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
             <div>
               <label style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>
@@ -255,11 +378,10 @@ function TxModal({ portfolioId, stocks, onClose, onSuccess }) {
             </div>
           </div>
 
-          {/* Toplam */}
           {quantity && price && (
             <div style={{
               background: type === "buy" ? "var(--green-bg)" : "var(--red-bg)",
-              border: `1px solid ${type === "buy" ? "#D1FAE5" : "#FEE2E2"}`,
+              border: `1px solid ${type === "buy" ? "var(--green)" : "var(--red)"}`,
               borderRadius: 8, padding: "10px 14px",
               display: "flex", justifyContent: "space-between", alignItems: "center",
             }}>
@@ -272,7 +394,7 @@ function TxModal({ portfolioId, stocks, onClose, onSuccess }) {
           )}
 
           {error && (
-            <div style={{ padding: "10px 14px", borderRadius: 8, background: "var(--red-bg)", border: "1px solid #FEE2E2", fontSize: 13, color: "var(--red)" }}>
+            <div style={{ padding: "10px 14px", borderRadius: 8, background: "var(--red-bg)", border: "1px solid var(--red)", fontSize: 13, color: "var(--red)" }}>
               {error}
             </div>
           )}
@@ -305,7 +427,7 @@ function TxRow({ tx }) {
           color: isBuy ? "var(--green)" : "var(--red)",
           background: isBuy ? "var(--green-bg)" : "var(--red-bg)",
           padding: "2px 8px", borderRadius: 20,
-          border: `1px solid ${isBuy ? "#D1FAE5" : "#FEE2E2"}`,
+          border: `1px solid ${isBuy ? "var(--green)" : "var(--red)"}`,
         }}>
           {isBuy ? "▲ ALIM" : "▼ SATIM"}
         </span>
@@ -327,60 +449,102 @@ function TxRow({ tx }) {
   );
 }
 
+// ── NAKİT İŞLEM SATIRI ────────────────────────────────────
+function CashRow({ tx }) {
+  const isDeposit = tx.type === "deposit";
+  return (
+    <tr style={{ borderBottom: "1px solid var(--border)" }}
+      onMouseEnter={e => e.currentTarget.style.background = "var(--bg)"}
+      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+      <td style={{ padding: "10px 16px" }}>
+        <span style={{
+          fontFamily: "var(--font-m)", fontSize: 11, fontWeight: 700,
+          color: isDeposit ? "var(--green)" : "var(--red)",
+          background: isDeposit ? "var(--green-bg)" : "var(--red-bg)",
+          padding: "2px 8px", borderRadius: 20,
+          border: `1px solid ${isDeposit ? "var(--green)" : "var(--red)"}`,
+        }}>
+          {isDeposit ? "▲ YATIRMA" : "▼ ÇEKME"}
+        </span>
+      </td>
+      <td style={{ padding: "10px 16px", fontFamily: "var(--font-m)", fontSize: 13, fontWeight: 600 }}>
+        ₺{fmtN(tx.amount)}
+      </td>
+      <td style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-2)" }}>{tx.notes || "—"}</td>
+      <td style={{ padding: "10px 16px", fontSize: 11, color: "var(--text-3)", fontFamily: "var(--font-m)", whiteSpace: "nowrap" }}>
+        {new Date(tx.executed_at).toLocaleDateString("tr-TR", { day: "2-digit", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" })}
+      </td>
+    </tr>
+  );
+}
+
 // ── ANA SAYFA ──────────────────────────────────────────────
 export default function PositionsPage() {
-  const [showModal, setShowModal] = useState(false);
-  const [tab,       setTab]       = useState("positions"); // positions | history
+  const [showTxModal,   setShowTxModal]   = useState(false);
+  const [showCashModal, setShowCashModal] = useState(false);
+  const [tab, setTab] = useState("positions"); // positions | history | cash
 
-  // Portföyleri çek
-  const { data: portList, loading: portLoading } = useApi(() => portApi.list(), []);
+  const { data: portList, loading: portLoading, refetch: refetchPort } = useApi(() => portApi.list(), []);
   const defaultPort = portList?.find(p => p.is_default) || portList?.[0];
+  const cashBalance = Number(defaultPort?.cash_balance || 0);
 
-  // Pozisyonlar
   const { data: positions, loading: posLoading, refetch: refetchPos } = useApi(
     () => defaultPort ? portApi.positions(defaultPort.id) : Promise.resolve([]),
     [defaultPort?.id]
   );
 
-  // İşlem geçmişi
   const { data: txHistory, loading: txLoading, refetch: refetchTx } = useApi(
     () => defaultPort ? portApi.transactions(defaultPort.id) : Promise.resolve([]),
     [defaultPort?.id]
   );
 
-  // Hisse listesi (modal için)
+  const { data: cashHistory, loading: cashLoading, refetch: refetchCash } = useApi(
+    () => defaultPort ? portApi.cashTransactions(defaultPort.id) : Promise.resolve([]),
+    [defaultPort?.id]
+  );
+
   const { data: stockList } = useApi(() => stocksApi.list(), []);
 
-  function handleSuccess() {
+  function handleTxSuccess() {
     refetchPos();
     refetchTx();
+    refetchPort();
   }
 
-  // ── Özet hesapla ──
-  const totalValue     = positions?.reduce((s, p) => s + Number(p.current_price || 0) * Number(p.quantity), 0) || 0;
-  const totalCost      = positions?.reduce((s, p) => s + Number(p.avg_cost) * Number(p.quantity), 0) || 0;
-  const unrealizedPnl  = totalValue - totalCost;
-  const unrealizedPct  = totalCost > 0 ? (unrealizedPnl / totalCost) * 100 : 0;
-  const realizedPnl    = positions?.reduce((s, p) => s + Number(p.realized_pnl || 0), 0) || 0;
-  const dailyPnl       = positions?.reduce((s, p) => s + Number(p.current_price || 0) * Number(p.quantity) * (Number(p.change_pct || 0) / 100), 0) || 0;
+  function handleCashSuccess() {
+    refetchCash();
+    refetchPort();
+  }
+
+  const stockValue     = positions?.reduce((s, p) => s + Number(p.current_price || 0) * Number(p.quantity), 0) || 0;
+  const totalAssets     = stockValue + cashBalance;
+  const totalCost       = positions?.reduce((s, p) => s + Number(p.avg_cost) * Number(p.quantity), 0) || 0;
+  const unrealizedPnl   = stockValue - totalCost;
+  const unrealizedPct   = totalCost > 0 ? (unrealizedPnl / totalCost) * 100 : 0;
+  const realizedPnl     = positions?.reduce((s, p) => s + Number(p.realized_pnl || 0), 0) || 0;
+  const dailyPnl        = positions?.reduce((s, p) => s + Number(p.current_price || 0) * Number(p.quantity) * (Number(p.change_pct || 0) / 100), 0) || 0;
 
   const loading = portLoading || posLoading;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <style>{POS_STYLES}</style>
 
-      {/* KPI Satırı */}
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-        <KpiCard label="Portföy Değeri"       value={`₺${fmtN(totalValue)}`}    sub={`${positions?.length || 0} pozisyon`}                up={null}                icon="💼" delay={0}   />
+      <div className="pos-kpi-row">
+        <KpiCard label="Toplam Varlık"        value={`₺${fmtN(totalAssets)}`}    sub="Nakit + Hisse"                       up={null}                icon="🏦" delay={0}   />
+        <KpiCard label="Nakit Bakiyesi"       value={`₺${fmtN(cashBalance)}`}    sub={`${positions?.length || 0} pozisyon`} up={null}                icon="💵" delay={40}  />
         <KpiCard label="Gerçekleşmemiş K/Z"   value={`${unrealizedPnl >= 0 ? "+" : ""}₺${fmtN(unrealizedPnl)}`} sub={`${unrealizedPct >= 0 ? "+" : ""}${fmt(unrealizedPct)}%`} up={unrealizedPnl >= 0} icon="📊" delay={80}  />
-        <KpiCard label="Gerçekleşmiş K/Z"     value={`${realizedPnl >= 0 ? "+" : ""}₺${fmtN(realizedPnl)}`}     sub="Tüm zamanlar"         up={realizedPnl >= 0}   icon="🎯" delay={160} />
-        <KpiCard label="Günlük K/Z"           value={`${dailyPnl >= 0 ? "+" : ""}₺${fmtN(dailyPnl)}`}           sub="Bugün"                up={dailyPnl >= 0}      icon="📈" delay={240} />
+        <KpiCard label="Gerçekleşmiş K/Z"     value={`${realizedPnl >= 0 ? "+" : ""}₺${fmtN(realizedPnl)}`}     sub="Tüm zamanlar"         up={realizedPnl >= 0}   icon="🎯" delay={120} />
+        <KpiCard label="Günlük K/Z"           value={`${dailyPnl >= 0 ? "+" : ""}₺${fmtN(dailyPnl)}`}           sub="Bugün"                up={dailyPnl >= 0}      icon="📈" delay={160} />
       </div>
 
-      {/* Sekme + İşlem Butonu */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ display: "flex", gap: 4 }}>
-          {[{ id: "positions", label: "Açık Pozisyonlar" }, { id: "history", label: "İşlem Geçmişi" }].map(t => (
+      <div className="pos-toolbar">
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+          {[
+            { id: "positions", label: "Açık Pozisyonlar" },
+            { id: "history",   label: "İşlem Geçmişi" },
+            { id: "cash",      label: "Nakit Geçmişi" },
+          ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} style={{
               padding: "7px 16px", borderRadius: 8,
               border: `1px solid ${tab === t.id ? "var(--accent)" : "var(--border)"}`,
@@ -390,21 +554,30 @@ export default function PositionsPage() {
             }}>{t.label}</button>
           ))}
         </div>
-        <button onClick={() => setShowModal(true)} style={{
-          padding: "8px 18px", borderRadius: 8, border: "none",
-          background: "var(--accent)", color: "#fff",
-          fontWeight: 600, fontSize: 13, cursor: "pointer",
-          display: "flex", alignItems: "center", gap: 6,
-          transition: "opacity 0.15s",
-        }}
-          onMouseEnter={e => e.currentTarget.style.opacity = "0.87"}
-          onMouseLeave={e => e.currentTarget.style.opacity = "1"}
-        >
-          <span style={{ fontSize: 16 }}>+</span> İşlem Ekle
-        </button>
+        <div className="pos-actions">
+          <button onClick={() => setShowCashModal(true)} style={{
+            padding: "8px 18px", borderRadius: 8, border: "1px solid var(--accent)",
+            background: "var(--accent-bg)", color: "var(--accent)",
+            fontWeight: 600, fontSize: 13, cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 6,
+          }}>
+            <span style={{ fontSize: 16 }}>💵</span> Nakit Yatır/Çek
+          </button>
+          <button onClick={() => setShowTxModal(true)} style={{
+            padding: "8px 18px", borderRadius: 8, border: "none",
+            background: "var(--accent)", color: "#fff",
+            fontWeight: 600, fontSize: 13, cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 6,
+            transition: "opacity 0.15s",
+          }}
+            onMouseEnter={e => e.currentTarget.style.opacity = "0.87"}
+            onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+          >
+            <span style={{ fontSize: 16 }}>+</span> İşlem Ekle
+          </button>
+        </div>
       </div>
 
-      {/* ── AÇIK POZİSYONLAR ── */}
       {tab === "positions" && (
         <Card>
           <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -417,7 +590,7 @@ export default function PositionsPage() {
             <div style={{ padding: 48, textAlign: "center" }}>
               <div style={{ fontSize: 32, marginBottom: 12 }}>📊</div>
               <div style={{ fontFamily: "var(--font-d)", fontSize: 15, color: "var(--text-2)", marginBottom: 6 }}>Henüz pozisyon yok</div>
-              <div style={{ fontSize: 13, color: "var(--text-3)" }}>"İşlem Ekle" ile ilk alımınızı yapın.</div>
+              <div style={{ fontSize: 13, color: "var(--text-3)" }}>Önce "Nakit Yatır" ile bakiye ekleyin, sonra "İşlem Ekle" ile alım yapın.</div>
             </div>
           ) : (
             <div style={{ overflowX: "auto" }}>
@@ -440,7 +613,7 @@ export default function PositionsPage() {
                     const uPnl     = mktVal - Number(p.avg_cost) * Number(p.quantity);
                     const uPct     = Number(p.avg_cost) > 0 ? (uPnl / (Number(p.avg_cost) * Number(p.quantity))) * 100 : 0;
                     const dayPnl   = Number(p.current_price || 0) * Number(p.quantity) * (Number(p.change_pct || 0) / 100);
-                    const portPct  = totalValue > 0 ? (mktVal / totalValue) * 100 : 0;
+                    const portPct  = stockValue > 0 ? (mktVal / stockValue) * 100 : 0;
 
                     return (
                       <tr key={p.id} style={{ borderBottom: "1px solid var(--border)" }}
@@ -470,7 +643,7 @@ export default function PositionsPage() {
                         <td style={{ padding: "12px 14px" }}><Pill value={dayPnl} prefix="₺" /></td>
                         <td style={{ padding: "12px 14px" }}><Pill value={p.realized_pnl} prefix="₺" /></td>
                         <td style={{ padding: "12px 14px" }}>
-                          <button onClick={() => setShowModal(true)} style={{
+                          <button onClick={() => setShowTxModal(true)} style={{
                             background: "none", border: "1px solid var(--border)",
                             borderRadius: 6, padding: "4px 10px", fontSize: 11,
                             color: "var(--text-2)", cursor: "pointer",
@@ -480,11 +653,10 @@ export default function PositionsPage() {
                     );
                   })}
                 </tbody>
-                {/* Toplam satırı */}
                 <tfoot>
                   <tr style={{ background: "var(--bg)", borderTop: "2px solid var(--border)" }}>
                     <td colSpan={4} style={{ padding: "11px 14px", fontWeight: 700, fontSize: 12, color: "var(--text-2)" }}>TOPLAM</td>
-                    <td style={{ padding: "11px 14px", fontFamily: "var(--font-m)", fontSize: 13, fontWeight: 700 }}>₺{fmtN(totalValue)}</td>
+                    <td style={{ padding: "11px 14px", fontFamily: "var(--font-m)", fontSize: 13, fontWeight: 700 }}>₺{fmtN(stockValue)}</td>
                     <td style={{ padding: "11px 14px" }}><Pill value={unrealizedPnl} prefix="₺" /></td>
                     <td style={{ padding: "11px 14px" }}><Pill value={unrealizedPct} /></td>
                     <td style={{ padding: "11px 14px" }}><Pill value={dailyPnl} prefix="₺" /></td>
@@ -498,7 +670,6 @@ export default function PositionsPage() {
         </Card>
       )}
 
-      {/* ── İŞLEM GEÇMİŞİ ── */}
       {tab === "history" && (
         <Card>
           <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -536,13 +707,58 @@ export default function PositionsPage() {
         </Card>
       )}
 
-      {/* Modal */}
-      {showModal && (
+      {tab === "cash" && (
+        <Card>
+          <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontFamily: "var(--font-d)", fontSize: 15 }}>Nakit Geçmişi</span>
+            <span style={{ fontFamily: "var(--font-m)", fontSize: 11, color: "var(--text-3)" }}>
+              Bakiye: ₺{fmtN(cashBalance)}
+            </span>
+          </div>
+          {cashLoading ? <Spinner /> : !cashHistory?.length ? (
+            <div style={{ padding: 48, textAlign: "center" }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>💵</div>
+              <div style={{ fontFamily: "var(--font-d)", fontSize: 15, color: "var(--text-2)", marginBottom: 6 }}>Henüz nakit işlemi yok</div>
+              <div style={{ fontSize: 13, color: "var(--text-3)" }}>"Nakit Yatır/Çek" ile ilk yatırımınızı yapın.</div>
+            </div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ background: "var(--bg)" }}>
+                    {["Tür","Tutar","Not","Tarih"].map((h, i) => (
+                      <th key={i} style={{
+                        padding: "10px 16px", textAlign: "left",
+                        fontSize: 10, fontWeight: 600, color: "var(--text-3)",
+                        letterSpacing: "0.07em", textTransform: "uppercase",
+                        borderBottom: "1px solid var(--border)", whiteSpace: "nowrap",
+                      }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {cashHistory.map(tx => <CashRow key={tx.id} tx={tx} />)}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {showTxModal && (
         <TxModal
           portfolioId={defaultPort?.id}
           stocks={stockList}
-          onClose={() => setShowModal(false)}
-          onSuccess={handleSuccess}
+          cashBalance={cashBalance}
+          onClose={() => setShowTxModal(false)}
+          onSuccess={handleTxSuccess}
+        />
+      )}
+      {showCashModal && (
+        <CashModal
+          portfolioId={defaultPort?.id}
+          onClose={() => setShowCashModal(false)}
+          onSuccess={handleCashSuccess}
         />
       )}
     </div>

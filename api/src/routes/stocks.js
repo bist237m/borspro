@@ -70,4 +70,56 @@ router.get("/:symbol/history", authenticate, async (req, res, next) => {
   }
 });
 
+// GET /api/stocks/:symbol/filters  — yeni filtre sisteminin gösterge/sonuç değerleri
+// (indicator_snapshots tablosundan — worker her taramada günceller)
+router.get("/:symbol/filters", authenticate, async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT ind.*
+       FROM indicator_snapshots ind
+       JOIN stocks s ON s.id = ind.stock_id
+       WHERE s.symbol = $1`,
+      [req.params.symbol.toUpperCase()]
+    );
+    if (!rows[0]) return res.status(404).json({ error: "Bu hisse için henüz gösterge verisi yok. Önce bir tarama çalıştırılmalı." });
+    res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/stocks/:symbol/fundamentals  — temel veri (FAVÖK, PD/DD, F/K vb.)
+router.get("/:symbol/fundamentals", authenticate, async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT f.*
+       FROM fundamentals_snapshots f
+       JOIN stocks s ON s.id = f.stock_id
+       WHERE s.symbol = $1`,
+      [req.params.symbol.toUpperCase()]
+    );
+    if (!rows[0]) return res.status(404).json({ error: "Bu hisse için temel veri yok." });
+    res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+// GET /api/stocks/:symbol/news  — KAP haberleri
+router.get("/:symbol/news", authenticate, async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT n.id, n.title, n.published_at, n.url
+       FROM stock_news n
+       JOIN stocks s ON s.id = n.stock_id
+       WHERE s.symbol = $1
+       ORDER BY n.published_at DESC NULLS LAST
+       LIMIT 10`,
+      [req.params.symbol.toUpperCase()]
+    );
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

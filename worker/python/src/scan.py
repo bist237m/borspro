@@ -1,14 +1,15 @@
 # python/src/scan.py
-# Yeni filtre sistemi: HAFTALIK_1/2/3 + GUNLUK_1
-# Eski RSI/TradingView tavsiyesi/eski IFT COMBO sistemi tamamen kaldırıldı.
+# Filtre sistemi: HAFTALIK_1/2/3 + GUNLUK_1
+# Her taranan hisse için gösterge değerleri indicator_snapshots'a yazılır
+# (filtreye girsin girmesin) — Teknik Analiz sayfası bunu okuyacak.
 
 import borsapy as bp
 from db import get_connection
 from custom_filters import (
     haftalik_analiz_1, haftalik_analiz_2, haftalik_analiz_3, gunluk_analiz_1,
+    compute_snapshot_values,
 )
 
-# (isim, fonksiyon, zaman_dilimi, borsapy period parametresi)
 FILTERS = [
     ("HAFTALIK_1", haftalik_analiz_1, "1wk", "2y"),
     ("HAFTALIK_2", haftalik_analiz_2, "1wk", "2y"),
@@ -77,6 +78,47 @@ def track_stock(cur, stock_id, triggered, current_price):
         )
 
 
+def save_snapshot(cur, stock_id, weekly_vals, daily_vals, filter_results):
+    cur.execute(
+        """
+        INSERT INTO indicator_snapshots
+          (stock_id, inv1_9, inv1_13, ema21_weekly, ema21_daily,
+           macdas_weekly, macdas_daily, cci20_weekly, cci20_daily,
+           price_weekly, price_daily,
+           haftalik_1, haftalik_2, haftalik_3, gunluk_1, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        ON CONFLICT (stock_id) DO UPDATE SET
+          inv1_9        = EXCLUDED.inv1_9,
+          inv1_13       = EXCLUDED.inv1_13,
+          ema21_weekly  = EXCLUDED.ema21_weekly,
+          ema21_daily   = EXCLUDED.ema21_daily,
+          macdas_weekly = EXCLUDED.macdas_weekly,
+          macdas_daily  = EXCLUDED.macdas_daily,
+          cci20_weekly  = EXCLUDED.cci20_weekly,
+          cci20_daily   = EXCLUDED.cci20_daily,
+          price_weekly  = EXCLUDED.price_weekly,
+          price_daily   = EXCLUDED.price_daily,
+          haftalik_1    = EXCLUDED.haftalik_1,
+          haftalik_2    = EXCLUDED.haftalik_2,
+          haftalik_3    = EXCLUDED.haftalik_3,
+          gunluk_1      = EXCLUDED.gunluk_1,
+          updated_at    = NOW()
+        """,
+        (
+            stock_id,
+            weekly_vals.get("inv1"), daily_vals.get("inv1"),
+            weekly_vals.get("ema21"), daily_vals.get("ema21"),
+            weekly_vals.get("macdas"), daily_vals.get("macdas"),
+            weekly_vals.get("cci20"), daily_vals.get("cci20"),
+            weekly_vals.get("price"), daily_vals.get("price"),
+            filter_results.get("HAFTALIK_1", False),
+            filter_results.get("HAFTALIK_2", False),
+            filter_results.get("HAFTALIK_3", False),
+            filter_results.get("GUNLUK_1", False),
+        ),
+    )
+
+
 def scan_one(cur, stock_id, symbol):
     ticker = bp.Ticker(symbol)
 
@@ -89,25 +131,29 @@ def scan_one(cur, stock_id, symbol):
     except Exception:
         df_d = None
 
-    triggered = []
+    filter_results = {}
     for name, func, tf, _ in FILTERS:
         df = df_w if tf == "1wk" else df_d
         if df is None or len(df) < 30:
+            filter_results[name] = False
             continue
         try:
-            if func(df):
-                triggered.append(name)
+            filter_results[name] = bool(func(df))
         except Exception as err:
             print(f"   ⚠️  {symbol} {name} hesap hatası: {err}")
+            filter_results[name] = False
 
+    # Gösterge anlık değerlerini hesapla (haftalık: CCI 9, günlük: CCI 13)
+    weekly_vals = compute_snapshot_values(df_w, 9)  if df_w is not None and len(df_w) >= 30 else {}
+    daily_vals  = compute_snapshot_values(df_d, 13) if df_d is not None and len(df_d) >= 30 else {}
+    save_snapshot(cur, stock_id, weekly_vals, daily_vals, filter_results)
+
+    triggered = [name for name, ok in filter_results.items() if ok]
     if not triggered:
         return "no_signal"
 
-    if df_d is not None and len(df_d):
-        current_price = float(df_d["Close"].iloc[-1])
-    elif df_w is not None and len(df_w):
-        current_price = float(df_w["Close"].iloc[-1])
-    else:
+    current_price = daily_vals.get("price") or weekly_vals.get("price")
+    if current_price is None:
         return "no_signal"
 
     save_signal(cur, stock_id, triggered, current_price)
@@ -123,7 +169,7 @@ def run_full_scan():
             cur.execute("SELECT id, symbol FROM stocks WHERE is_active = TRUE ORDER BY symbol")
             stocks = cur.fetchall()
             results["total"] = len(stocks)
-            print(f"🔍 Tam tarama başladı — {len(stocks)} hisse (4 filtre)")
+            print(f"🔍 Tam tarama başladı — {len(stocks)} hisse (4 filtre + snapshot)")
 
             for i, (stock_id, symbol) in enumerate(stocks):
                 try:

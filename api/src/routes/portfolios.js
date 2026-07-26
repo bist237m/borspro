@@ -44,6 +44,31 @@ router.post("/", authenticate, async (req, res, next) => {
   }
 });
 
+// PATCH /api/portfolios/:id — isim/para birimi güncelle
+router.patch("/:id", authenticate, async (req, res, next) => {
+  try {
+    const { name, currency } = req.body;
+    const fields = [];
+    const values = [];
+    let i = 1;
+    if (name)     { fields.push(`name = $${i++}`);     values.push(name); }
+    if (currency) { fields.push(`currency = $${i++}`); values.push(currency); }
+    if (!fields.length) return res.status(400).json({ error: "Güncellenecek alan yok." });
+
+    values.push(req.params.id, req.user.id);
+    const { rows } = await query(
+      `UPDATE portfolios SET ${fields.join(", ")}
+       WHERE id = $${i} AND user_id = $${i + 1}
+       RETURNING *`,
+      values
+    );
+    if (!rows[0]) return res.status(404).json({ error: "Portföy bulunamadı." });
+    res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // DELETE /api/portfolios/:id
 router.delete("/:id", authenticate, async (req, res, next) => {
   try {
@@ -83,7 +108,7 @@ router.get("/:id/positions", authenticate, async (req, res, next) => {
   }
 });
 
-// ── İŞLEMLER ───────────────────────────────────────────────
+// ── İŞLEMLER (hisse alım/satım) ────────────────────────────
 
 // GET /api/portfolios/:id/transactions
 router.get("/:id/transactions", authenticate, async (req, res, next) => {
@@ -115,12 +140,23 @@ router.post("/:id/transactions", authenticate, async (req, res, next) => {
       return res.status(400).json({ error: "stock_id, type, quantity ve price zorunludur." });
     }
 
-    // Portföy bu kullanıcıya ait mi?
+    // Portföy bu kullanıcıya ait mi? (FOR UPDATE ile kilitleyip nakit bakiyesini de al)
     const { rows: pRows } = await client.query(
-      "SELECT id FROM portfolios WHERE id = $1 AND user_id = $2",
+      "SELECT id, cash_balance FROM portfolios WHERE id = $1 AND user_id = $2 FOR UPDATE",
       [req.params.id, req.user.id]
     );
     if (!pRows[0]) return res.status(404).json({ error: "Portföy bulunamadı." });
+
+    const cashBalance = Number(pRows[0].cash_balance);
+    const totalCost   = Number(quantity) * Number(price) + Number(commission || 0);
+
+    // ALIM: nakit yetersizse engelle
+    if (type === "buy" && cashBalance < totalCost) {
+      throw Object.assign(
+        new Error(`Yetersiz nakit bakiyesi. Gerekli: ₺${totalCost.toFixed(2)}, mevcut: ₺${cashBalance.toFixed(2)}`),
+        { status: 400 }
+      );
+    }
 
     // İşlemi kaydet
     const { rows: txRows } = await client.query(
@@ -168,8 +204,90 @@ router.post("/:id/transactions", authenticate, async (req, res, next) => {
       }
     }
 
+    // Nakit bakiyesini güncelle (alım → düş, satım → ekle)
+    const cashDelta = type === "buy"
+      ? -totalCost
+      : (Number(quantity) * Number(price) - Number(commission || 0));
+
+    await client.query(
+      "UPDATE portfolios SET cash_balance = cash_balance + $1 WHERE id = $2",
+      [cashDelta, req.params.id]
+    );
+
     await client.query("COMMIT");
     res.status(201).json(txRows[0]);
+  } catch (err) {
+    await client.query("ROLLBACK");
+    next(err);
+  } finally {
+    client.release();
+  }
+});
+
+// ── NAKİT İŞLEMLERİ ────────────────────────────────────────
+
+// GET /api/portfolios/:id/cash-transactions
+router.get("/:id/cash-transactions", authenticate, async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT ct.*
+       FROM cash_transactions ct
+       JOIN portfolios p ON p.id = ct.portfolio_id
+       WHERE ct.portfolio_id = $1 AND p.user_id = $2
+       ORDER BY ct.executed_at DESC
+       LIMIT 100`,
+      [req.params.id, req.user.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/portfolios/:id/cash — nakit yatır / çek
+router.post("/:id/cash", authenticate, async (req, res, next) => {
+  const client = await getClient();
+  try {
+    await client.query("BEGIN");
+
+    const { type, amount, notes, executed_at } = req.body;
+    if (!type || !amount || Number(amount) <= 0) {
+      return res.status(400).json({ error: "type ve pozitif bir amount zorunludur." });
+    }
+    if (!["deposit", "withdraw"].includes(type)) {
+      return res.status(400).json({ error: "type 'deposit' veya 'withdraw' olmalı." });
+    }
+
+    const { rows: pRows } = await client.query(
+      "SELECT id, cash_balance FROM portfolios WHERE id = $1 AND user_id = $2 FOR UPDATE",
+      [req.params.id, req.user.id]
+    );
+    if (!pRows[0]) return res.status(404).json({ error: "Portföy bulunamadı." });
+
+    const currentBalance = Number(pRows[0].cash_balance);
+
+    if (type === "withdraw" && currentBalance < Number(amount)) {
+      throw Object.assign(new Error("Yetersiz nakit bakiyesi."), { status: 400 });
+    }
+
+    const newBalance = type === "deposit"
+      ? currentBalance + Number(amount)
+      : currentBalance - Number(amount);
+
+    await client.query(
+      "UPDATE portfolios SET cash_balance = $1 WHERE id = $2",
+      [newBalance, req.params.id]
+    );
+
+    const { rows: txRows } = await client.query(
+      `INSERT INTO cash_transactions (portfolio_id, type, amount, notes, executed_at)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [req.params.id, type, amount, notes, executed_at || new Date()]
+    );
+
+    await client.query("COMMIT");
+    res.status(201).json({ ...txRows[0], new_balance: newBalance });
   } catch (err) {
     await client.query("ROLLBACK");
     next(err);

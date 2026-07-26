@@ -36,8 +36,22 @@ export function AuthProvider({ children }) {
     setUser(null);
   }, []);
 
+  // Ayarlar sayfasında profil/bildirim/API key güncellendikten sonra
+  // global user state'ini tazelemek için — sunucudan dönen güncel
+  // alanları mevcut user objesiyle birleştirir.
+  const updateUser = useCallback((patch) => {
+    setUser(u => (u ? { ...u, ...patch } : u));
+  }, []);
+
+  // Gerekirse sunucudan tam profili tekrar çekmek için.
+  const refreshUser = useCallback(async () => {
+    const u = await authApi.me();
+    setUser(u);
+    return u;
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, updateUser, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
