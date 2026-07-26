@@ -1,11 +1,12 @@
 # python/src/sync.py
-# Kayıtlı hisselerin anlık fiyatını günceller.
+# Kayıtlı hisselerin anlık fiyatını günceller + üstteki piyasa
+# şeridi için BIST100/USD/Altın verisini çeker.
 # ÖNEMLİ: fast_info kullanmıyoruz — o, isyatirim.com'dan da veri çekmeye
 # çalışıyor ve bazen çok yavaş/yanıtsız kalıyor. Bunun yerine sadece
 # TradingView tabanlı history() kullanıyoruz.
 
 import borsapy as bp
-from db import query, execute
+from db import query, execute, get_connection
 
 
 def run_sync_quotes():
@@ -57,7 +58,56 @@ def run_sync_quotes():
             print(f"   ❌ {symbol}: {err}")
 
     print(f"   ✅ Güncellenen: {updated} | Hata: {errors}")
+
+    # ── Piyasa şeridi: BIST100, USD/TRY, Altın ──
+    try:
+        run_sync_market_snapshot()
+    except Exception as err:
+        print(f"   ⚠️  Piyasa şeridi güncellenemedi: {err}")
+
     return {"updated": updated, "errors": errors}
+
+
+def run_sync_market_snapshot():
+    print("📊 Piyasa şeridi güncelleniyor (BIST100, USD/TRY, Altın)...")
+
+    idx_info = bp.Index("XU100").info
+    usd = bp.FX("USD").current
+    gold = bp.FX("gram-altin").current
+
+    # FX için 'current' açık şekilde değişim yüzdesi vermiyor,
+    # gün içi open'a göre yaklaşık değişim hesaplıyoruz.
+    def pct_from_open(cur):
+        last, open_ = cur.get("last"), cur.get("open")
+        if not last or not open_:
+            return None
+        return (last - open_) / open_ * 100
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO market_snapshot
+                  (id, bist100_last, bist100_change_pct, usd_last, usd_change_pct, gold_last, gold_change_pct, updated_at)
+                VALUES (1, %s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (id) DO UPDATE SET
+                  bist100_last       = EXCLUDED.bist100_last,
+                  bist100_change_pct = EXCLUDED.bist100_change_pct,
+                  usd_last           = EXCLUDED.usd_last,
+                  usd_change_pct     = EXCLUDED.usd_change_pct,
+                  gold_last          = EXCLUDED.gold_last,
+                  gold_change_pct    = EXCLUDED.gold_change_pct,
+                  updated_at         = NOW()
+                """,
+                (
+                    idx_info.get("last"), idx_info.get("change_percent"),
+                    usd.get("last"), pct_from_open(usd),
+                    gold.get("last"), pct_from_open(gold),
+                ),
+            )
+        conn.commit()
+
+    print("   ✅ Piyasa şeridi güncellendi")
 
 
 if __name__ == "__main__":

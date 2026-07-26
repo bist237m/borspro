@@ -11,7 +11,7 @@ import authRouter       from "./routes/auth.js";
 import stocksRouter     from "./routes/stocks.js";
 import portfoliosRouter from "./routes/portfolios.js";
 import watchlistsRouter from "./routes/watchlists.js";
-import { alertsRouter, newsRouter, calendarRouter } from "./routes/misc.js";
+import { alertsRouter, newsRouter, calendarRouter, marketRouter } from "./routes/misc.js";
 import jobsRouter    from "./routes/jobs.js";
 import signalsRouter from "./routes/signals.js";
 import { errorHandler } from "./middleware/errorHandler.js";
@@ -35,7 +35,7 @@ app.use("/api/portfolios", portfoliosRouter);
 app.use("/api/watchlists", watchlistsRouter);
 app.use("/api/alerts",     alertsRouter);
 app.use("/api/news",       newsRouter);
-app.use("/api/calendar",   calendarRouter);
+app.use("/api/market",     marketRouter);
 app.use("/api/jobs",       jobsRouter);
 app.use("/api/signals",    signalsRouter);
 

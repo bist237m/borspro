@@ -102,3 +102,16 @@ calendarRouter.get("/", authenticate, async (req, res, next) => {
     res.json(rows);
   } catch (err) { next(err); }
 });
+
+
+// ── PİYASA ŞERİDİ ──────────────────────────────────────────
+export const marketRouter = Router();
+
+// GET /api/market/ticker — BIST100, USD/TRY, Altın
+marketRouter.get("/ticker", authenticate, async (req, res, next) => {
+  try {
+    const { rows } = await query("SELECT * FROM market_snapshot WHERE id = 1");
+    if (!rows[0]) return res.json(null);
+    res.json(rows[0]);
+  } catch (err) { next(err); }
+});
