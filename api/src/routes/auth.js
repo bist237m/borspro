@@ -78,7 +78,7 @@ router.get("/me", authenticate, async (req, res, next) => {
     const { rows } = await query(
       `SELECT id, email, full_name, plan, avatar_url, timezone, created_at,
               notify_email, notify_price_alerts,
-              (anthropic_api_key IS NOT NULL) AS has_api_key
+              (openai_api_key IS NOT NULL) AS has_api_key
        FROM users WHERE id = $1`,
       [req.user.id]
     );
@@ -95,7 +95,7 @@ router.patch("/me", authenticate, async (req, res, next) => {
     const {
       full_name, avatar_url,
       notify_email, notify_price_alerts,
-      anthropic_api_key,
+      openai_api_key,
     } = req.body;
 
     const fields = [];
@@ -111,7 +111,7 @@ router.patch("/me", authenticate, async (req, res, next) => {
     if (avatar_url        !== undefined) add("avatar_url", avatar_url);
     if (notify_email      !== undefined) add("notify_email", notify_email);
     if (notify_price_alerts !== undefined) add("notify_price_alerts", notify_price_alerts);
-    if (anthropic_api_key !== undefined) add("anthropic_api_key", anthropic_api_key);
+    if (openai_api_key !== undefined) add("openai_api_key", openai_api_key);
 
     if (!fields.length) {
       return res.status(400).json({ error: "Güncellenecek en az bir alan gerekli." });
@@ -123,7 +123,7 @@ router.patch("/me", authenticate, async (req, res, next) => {
        WHERE id = $${i}
        RETURNING id, email, full_name, plan, avatar_url, timezone,
                  notify_email, notify_price_alerts,
-                 (anthropic_api_key IS NOT NULL) AS has_api_key`,
+                 (openai_api_key IS NOT NULL) AS has_api_key`,
       values
     );
     res.json(rows[0]);

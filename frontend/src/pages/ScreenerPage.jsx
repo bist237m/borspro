@@ -1,7 +1,7 @@
 // src/pages/ScreenerPage.jsx
 import { useState, useMemo } from "react";
 import { useApi } from "../hooks/useApi.js";
-import { stocks as stocksApi, jobs as jobsApi, signals as signalsApi } from "../api/client.js";
+import { stocks as stocksApi, jobs as jobsApi, signals as signalsApi, ai as aiApi } from "../api/client.js";
 import { FILTER_LABELS, FILTER_DEFINITIONS, parseFilterTypes } from "../constants/filterDefinitions.js";
 
 const fmt  = (n, d = 2) => n == null ? "—" : Number(n).toLocaleString("tr-TR", { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -70,6 +70,22 @@ function StockDetailModal({ symbol, onClose }) {
   const { data: filterData, loading: filterLoading } = useApi(() => stocksApi.filters(symbol), [symbol]);
   const { data: fundData, loading: fundLoading } = useApi(() => stocksApi.fundamentals(symbol), [symbol]);
   const { data: newsData, loading: newsLoading } = useApi(() => stocksApi.news(symbol), [symbol]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResult,  setAiResult]  = useState(null);
+  const [aiError,   setAiError]   = useState(null);
+
+  async function handleAiComment() {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const res = await aiApi.comment(symbol);
+      setAiResult(res.comment);
+    } catch (e) {
+      setAiError(e.message);
+    } finally {
+      setAiLoading(false);
+    }
+  }
 
   const up = detail ? Number(detail.change_pct) >= 0 : true;
 
@@ -198,15 +214,52 @@ function StockDetailModal({ symbol, onClose }) {
             )}
           </div>
 
-          {/* AI Yorumla — henüz aktif değil, Anthropic API key kurulunca açılacak */}
-          <button disabled title="Yakında: Anthropic API key kurulumu tamamlanınca aktif olacak" style={{
-            padding: "11px", borderRadius: 8, border: "1px dashed var(--border)",
-            background: "var(--bg)", color: "var(--text-3)",
-            fontSize: 13, fontWeight: 600, cursor: "not-allowed",
+          {/* AI Yorumla — ChatGPT (OpenAI) üzerinden */}
+          <button onClick={handleAiComment} disabled={aiLoading} style={{
+            padding: "11px", borderRadius: 8, border: "none",
+            background: aiLoading ? "var(--bg)" : "var(--accent)",
+            color: aiLoading ? "var(--text-3)" : "#fff",
+            fontSize: 13, fontWeight: 600, cursor: aiLoading ? "not-allowed" : "pointer",
             display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
           }}>
-            🤖 AI ile Yorumla <span style={{ fontSize: 10, fontFamily: "var(--font-m)" }}>(yakında)</span>
+            {aiLoading ? "AI analiz ediyor..." : "🤖 AI ile Yorumla"}
           </button>
+
+          {aiError && (
+            <div style={{ padding: "9px 14px", borderRadius: 8, background: "var(--red-bg)", border: "1px solid var(--red)", fontSize: 12, color: "var(--red)" }}>
+              {aiError}
+            </div>
+          )}
+
+          {aiResult && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <span style={{
+                  padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 700,
+                  background: aiResult.tavsiye === "AL" ? "var(--green-bg)" : aiResult.tavsiye === "SAT" ? "var(--red-bg)" : "var(--bg)",
+                  color: aiResult.tavsiye === "AL" ? "var(--green)" : aiResult.tavsiye === "SAT" ? "var(--red)" : "var(--text-2)",
+                }}>{aiResult.tavsiye}</span>
+                <span style={{
+                  padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600,
+                  background: "var(--bg)", color: "var(--text-2)", border: "1px solid var(--border)",
+                }}>Risk: {aiResult.risk_seviyesi}</span>
+              </div>
+              {[
+                { label: "Temel Değerlendirme", text: aiResult.temel_degerlendirme },
+                { label: "Teknik Değerlendirme", text: aiResult.teknik_degerlendirme },
+                { label: "Geçmiş Performans Analizi", text: aiResult.gecmis_performans_analizi },
+                { label: "Genel Yorum", text: aiResult.genel_yorum },
+              ].map((s, i) => (
+                <div key={i}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 4 }}>{s.label}</div>
+                  <div style={{ fontSize: 13, color: "var(--text-1)", lineHeight: 1.5 }}>{s.text}</div>
+                </div>
+              ))}
+              <div style={{ fontSize: 10, color: "var(--text-3)", fontStyle: "italic" }}>
+                Bu içerik yapay zeka tarafından üretilmiştir, yatırım tavsiyesi değildir.
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

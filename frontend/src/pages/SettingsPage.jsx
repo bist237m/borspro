@@ -217,7 +217,7 @@ function ApiKeySection() {
   async function handleSave() {
     setMsg(null);
     try {
-      const updated = await mutate({ anthropic_api_key: apiKey });
+      const updated = await mutate({ openai_api_key: apiKey });
       updateUser(updated);
       setMsg({ type: "success", text: "API key kaydedildi." });
       setApiKey("");
@@ -227,7 +227,7 @@ function ApiKeySection() {
   }
 
   return (
-    <Section title="AI Yorum Özelliği" desc="Hisse detaylarında AI yorumu almak için kendi Anthropic API key'ini gir.">
+    <Section title="AI Yorum Özelliği" desc="Hisse detaylarında ChatGPT (OpenAI) yorumu almak için kendi API key'ini gir.">
       <div style={{
         display: "flex", alignItems: "center", gap: 8,
         fontSize: 12, color: user?.has_api_key ? "var(--green)" : "var(--text-3)",
@@ -239,12 +239,12 @@ function ApiKeySection() {
         {user?.has_api_key ? "API key kayıtlı" : "Henüz API key girilmedi"}
       </div>
 
-      <Field label="Anthropic API Key">
+      <Field label="OpenAI API Key">
         <input type="password" style={inputStyle} value={apiKey} onChange={e => setApiKey(e.target.value)}
-          placeholder="sk-ant-..." />
+          placeholder="sk-..." />
       </Field>
       <div style={{ fontSize: 11, color: "var(--text-3)" }}>
-        console.anthropic.com adresinden alabilirsin. Bu key, veritabanında düz metin olarak saklanıyor —
+        platform.openai.com/api-keys adresinden alabilirsin. Bu key, veritabanında düz metin olarak saklanıyor —
         kişisel/deneme projesi için kabul edilebilir, ama gerçek şifreleme değil.
       </div>
 

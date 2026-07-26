@@ -14,6 +14,7 @@ import watchlistsRouter from "./routes/watchlists.js";
 import { alertsRouter, newsRouter, calendarRouter, marketRouter } from "./routes/misc.js";
 import jobsRouter    from "./routes/jobs.js";
 import signalsRouter from "./routes/signals.js";
+import aiRouter      from "./routes/ai.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import pool from "./db/pool.js";
 
@@ -38,6 +39,7 @@ app.use("/api/news",       newsRouter);
 app.use("/api/market",     marketRouter);
 app.use("/api/jobs",       jobsRouter);
 app.use("/api/signals",    signalsRouter);
+app.use("/api/ai",         aiRouter);
 
 app.get("/health", async (_req, res) => {
   try {

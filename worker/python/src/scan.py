@@ -38,22 +38,30 @@ def save_signal(cur, stock_id, triggered, current_price):
 
 def track_stock(cur, stock_id, triggered, current_price):
     cur.execute(
-        "SELECT id, filter_types, entry_price, max_price FROM tracked_signals "
-        "WHERE stock_id = %s AND is_active = TRUE",
+        "SELECT id, filter_types, entry_price, max_price, "
+        "milestone_5_at, milestone_10_at, milestone_20_at, milestone_30_at "
+        "FROM tracked_signals WHERE stock_id = %s AND is_active = TRUE",
         (stock_id,),
     )
     row = cur.fetchone()
 
     if row:
-        tracked_id, existing_types, entry_price, max_price = row
+        (tracked_id, existing_types, entry_price, max_price,
+         m5, m10, m20, m30) = row
         existing_set = set(existing_types.split(",")) if existing_types else set()
         merged_types = ",".join(sorted(existing_set | set(triggered)))
         new_max = max(float(max_price or 0), current_price)
         entry_price_f = float(entry_price) if entry_price else current_price
         change_pct = ((current_price - entry_price_f) / entry_price_f * 100) if entry_price_f else 0
 
+        # Kilometre taşları — ilk kez ulaşılan eşiği kaydet, sonra dokunma
+        if m5  is None and change_pct >= 5:  m5  = "NOW()"
+        if m10 is None and change_pct >= 10: m10 = "NOW()"
+        if m20 is None and change_pct >= 20: m20 = "NOW()"
+        if m30 is None and change_pct >= 30: m30 = "NOW()"
+
         cur.execute(
-            """
+            f"""
             UPDATE tracked_signals SET
               filter_types   = %s,
               current_price  = %s,
@@ -61,6 +69,10 @@ def track_stock(cur, stock_id, triggered, current_price):
               max_price      = %s,
               max_price_date = CASE WHEN %s > COALESCE(max_price, 0)
                                      THEN CURRENT_DATE ELSE max_price_date END,
+              milestone_5_at  = {'NOW()' if m5  == 'NOW()' else 'milestone_5_at'},
+              milestone_10_at = {'NOW()' if m10 == 'NOW()' else 'milestone_10_at'},
+              milestone_20_at = {'NOW()' if m20 == 'NOW()' else 'milestone_20_at'},
+              milestone_30_at = {'NOW()' if m30 == 'NOW()' else 'milestone_30_at'},
               updated_at     = NOW()
             WHERE id = %s
             """,
