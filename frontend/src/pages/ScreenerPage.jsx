@@ -339,6 +339,47 @@ function StockDetailModal({ symbol, onClose }) {
   );
 }
 
+// ── EK FİLTRELERE GİREN HİSSELER ────────────────────────────
+const EXTRA_FILTER_LABELS = { IFT5_EMA_MACD: "IFT5-EMA-MACD", EMA120: "EMA120" };
+
+function ExtraFilterTable({ onSelectSymbol }) {
+  const { data: groups, loading } = useApi(() => signalsApi.extraTracked(), []);
+
+  return (
+    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--r)" }}>
+      <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)" }}>
+        <span style={{ fontFamily: "var(--font-d)", fontSize: 15 }}>Ek Filtreye Girenler</span>
+      </div>
+      {loading ? <Spinner /> : !groups?.length ? (
+        <div style={{ padding: 40, textAlign: "center" }}>
+          <div style={{ fontSize: 28, marginBottom: 10, opacity: 0.3 }}>🔍</div>
+          <div style={{ fontSize: 13, color: "var(--text-3)" }}>Henüz ek filtreye giren hisse yok.</div>
+        </div>
+      ) : (
+        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
+          {groups.map(g => (
+            <div key={`${g.filter_code}-${g.timeframe}`} style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: 13, fontWeight: 700 }}>{EXTRA_FILTER_LABELS[g.filter_code] || g.filter_code}</span>
+                <span style={{ fontFamily: "var(--font-m)", fontSize: 11, color: "var(--text-3)", background: "var(--bg)", padding: "2px 8px", borderRadius: 4 }}>{g.timeframe}</span>
+                <span style={{ fontFamily: "var(--font-m)", fontSize: 11, color: "var(--accent)", marginLeft: "auto" }}>{g.stocks.length} hisse</span>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {g.stocks.map(s => (
+                  <span key={s.symbol} onClick={() => onSelectSymbol(s.symbol)} style={{
+                    fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 20,
+                    background: "var(--accent-bg)", color: "var(--accent)", cursor: "pointer",
+                  }}>{s.symbol}</span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── FİLTREYE GİREN HİSSELER TABLOSU ─────────────────────────
 function TrackedTable({ list, loading, onSelectSymbol }) {
   return (
@@ -532,6 +573,7 @@ export default function ScreenerPage() {
         {[
           { id: "all",     label: "Tüm Hisseler" },
           { id: "tracked", label: "Filtreye Girenler" },
+          { id: "extra",   label: "Ek Filtreye Girenler" },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{
             padding: "7px 16px", borderRadius: 8,
@@ -545,6 +587,8 @@ export default function ScreenerPage() {
 
       {tab === "tracked" ? (
         <TrackedTable list={trackedList} loading={trackedLoading} onSelectSymbol={setSelectedSymbol} />
+      ) : tab === "extra" ? (
+        <ExtraFilterTable onSelectSymbol={setSelectedSymbol} />
       ) : (
       <div style={{ display:"grid", gridTemplateColumns:panelOpen?"240px 1fr":"0 1fr", gap:panelOpen?16:0 }}>
 

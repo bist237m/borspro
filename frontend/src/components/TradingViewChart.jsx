@@ -1,6 +1,5 @@
 // src/components/TradingViewChart.jsx
 // TradingView'ın ücretsiz "Advanced Chart" widget'ını gömer.
-// API key gerekmiyor — sadece sembol adı (BIST:THYAO gibi) yeterli.
 
 import { useEffect, useRef } from "react";
 
@@ -10,7 +9,6 @@ export default function TradingViewChart({ symbol, height = "100%" }) {
   useEffect(() => {
     if (!containerRef.current || !symbol) return;
 
-    // Sembol değişince widget'ı sıfırdan kur
     containerRef.current.innerHTML = "";
 
     const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -20,11 +18,7 @@ export default function TradingViewChart({ symbol, height = "100%" }) {
     widgetDiv.style.height = "100%";
     widgetDiv.style.width = "100%";
 
-    const script = document.createElement("script");
-    script.type = "text/javascript";
-    script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
-    
-    script.innerHTML = JSON.stringify({
+    const config = {
       autosize: true,
       symbol: `BIST:${symbol}`,
       interval: "D",
@@ -36,7 +30,15 @@ export default function TradingViewChart({ symbol, height = "100%" }) {
       hide_legend: false,
       allow_symbol_change: false,
       support_host: "https://www.tradingview.com",
-    });
+    };
+
+    const script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+    // ÖNEMLİ: innerHTML yerine textNode kullanıyoruz — script etiketlerinde
+    // innerHTML ile içerik atamak bazı tarayıcılarda widget'ın ayarları
+    // okumasını engelliyordu (varsayılan sembole düşüyordu).
+    script.appendChild(document.createTextNode(JSON.stringify(config)));
 
     containerRef.current.appendChild(widgetDiv);
     containerRef.current.appendChild(script);

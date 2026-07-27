@@ -39,7 +39,7 @@ export const alerts     = { list: () => request("GET","/alerts"), create: b => r
 export const news       = { list: (p={}) => request("GET",`/news${p&&Object.keys(p).length?"?"+new URLSearchParams(p):""}`) };
 export const calendar   = { list: (p={}) => request("GET",`/calendar${p&&Object.keys(p).length?"?"+new URLSearchParams(p):""}`) };
 export const jobs       = { scan: () => request("POST","/jobs/scan"), sync: () => request("POST","/jobs/sync"), status: () => request("GET","/jobs/status"), overview: () => request("GET","/jobs/status/overview") };
-export const signals    = { tracked: () => request("GET","/signals/tracked"), performance: () => request("GET","/signals/performance") };
+export const signals    = { tracked: () => request("GET","/signals/tracked"), performance: () => request("GET","/signals/performance"), extraTracked: () => request("GET","/signals/extra-tracked") };
 export const market      = { ticker: () => request("GET","/market/ticker") };
 export const ai = { comment: symbol => request("POST",`/ai/stocks/${symbol}/comment`), history: symbol => request("GET",`/ai/stocks/${symbol}/comment/history`), allCommentary: () => request("GET","/ai/commentary") };
 export const reports = { taxSummary: () => request("GET","/reports/tax-summary") };

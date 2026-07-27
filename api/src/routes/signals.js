@@ -91,4 +91,31 @@ router.get("/performance", authenticate, async (req, res, next) => {
   }
 });
 
+// GET /api/signals/extra-tracked — ek filtreleri (Filtre 5/6) sağlayan hisseler
+router.get("/extra-tracked", authenticate, async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT efr.filter_code, efr.timeframe, efr.updated_at, s.symbol, s.name
+       FROM extra_filter_results efr
+       JOIN stocks s ON s.id = efr.stock_id
+       WHERE efr.result = TRUE
+       ORDER BY efr.filter_code, efr.timeframe, s.symbol`
+    );
+
+    // Filtre+zaman dilimi bazında grupla
+    const grouped = {};
+    for (const row of rows) {
+      const key = `${row.filter_code}|${row.timeframe}`;
+      if (!grouped[key]) {
+        grouped[key] = { filter_code: row.filter_code, timeframe: row.timeframe, stocks: [] };
+      }
+      grouped[key].stocks.push({ symbol: row.symbol, name: row.name, updated_at: row.updated_at });
+    }
+
+    res.json(Object.values(grouped));
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
