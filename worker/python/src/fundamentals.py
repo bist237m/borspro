@@ -127,7 +127,7 @@ def save_fundamentals(cur, stock_id, row, iy_row=None):
            rsi, sma50, volume, avg_volume_10d, pivot_s1, pivot_r1, macd_line, macd_signal_line,
            free_float, foreign_ratio,
            updated_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
         ON CONFLICT (stock_id) DO UPDATE SET
           favok                  = EXCLUDED.favok,
           net_kar                = EXCLUDED.net_kar,
