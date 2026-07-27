@@ -1,8 +1,10 @@
 # python/src/scan.py
 # Filtre sistemi: HAFTALIK_1/2/3 + GUNLUK_1
-# Her taranan hisse için gösterge değerleri indicator_snapshots'a yazılır
-# (filtreye girsin girmesin) — Teknik Analiz sayfası bunu okuyacak.
+# HIZLANDIRMA: history() çağrıları artık PARALEL (ThreadPoolExecutor) —
+# ağ istekleri (yavaş kısım) aynı anda birden çok hisse için yapılıyor,
+# veritabanı yazımı ise güvenli şekilde tek tek (ana thread'de) yapılıyor.
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import borsapy as bp
 from db import get_connection
 from custom_filters import (
@@ -16,6 +18,8 @@ FILTERS = [
     ("HAFTALIK_3", haftalik_analiz_3, "1wk", "2y"),
     ("GUNLUK_1",   gunluk_analiz_1,   "1d",  "1y"),
 ]
+
+MAX_WORKERS = 10  # aynı anda kaç hisse işlensin
 
 
 def save_signal(cur, stock_id, triggered, current_price):
@@ -54,7 +58,6 @@ def track_stock(cur, stock_id, triggered, current_price):
         entry_price_f = float(entry_price) if entry_price else current_price
         change_pct = ((current_price - entry_price_f) / entry_price_f * 100) if entry_price_f else 0
 
-        # Kilometre taşları — ilk kez ulaşılan eşiği kaydet, sonra dokunma
         if m5  is None and change_pct >= 5:  m5  = "NOW()"
         if m10 is None and change_pct >= 10: m10 = "NOW()"
         if m20 is None and change_pct >= 20: m20 = "NOW()"
@@ -131,7 +134,9 @@ def save_snapshot(cur, stock_id, weekly_vals, daily_vals, filter_results):
     )
 
 
-def scan_one(cur, stock_id, symbol):
+def scan_one_data(symbol: str) -> dict:
+    """SADECE veri toplama — veritabanına dokunmuyor, paralel/thread-safe.
+    Ağ isteklerini (yavaş kısım) burada yapıyoruz."""
     ticker = bp.Ticker(symbol)
 
     try:
@@ -151,25 +156,33 @@ def scan_one(cur, stock_id, symbol):
             continue
         try:
             filter_results[name] = bool(func(df))
-        except Exception as err:
-            print(f"   ⚠️  {symbol} {name} hesap hatası: {err}")
+        except Exception:
             filter_results[name] = False
 
-    # Gösterge anlık değerlerini hesapla (haftalık: CCI 9, günlük: CCI 13)
     weekly_vals = compute_snapshot_values(df_w, 9)  if df_w is not None and len(df_w) >= 30 else {}
     daily_vals  = compute_snapshot_values(df_d, 13) if df_d is not None and len(df_d) >= 30 else {}
-    save_snapshot(cur, stock_id, weekly_vals, daily_vals, filter_results)
 
     triggered = [name for name, ok in filter_results.items() if ok]
-    if not triggered:
-        return "no_signal"
-
     current_price = daily_vals.get("price") or weekly_vals.get("price")
-    if current_price is None:
-        return "no_signal"
 
-    save_signal(cur, stock_id, triggered, current_price)
-    track_stock(cur, stock_id, triggered, current_price)
+    return {
+        "symbol": symbol,
+        "filter_results": filter_results,
+        "weekly_vals": weekly_vals,
+        "daily_vals": daily_vals,
+        "triggered": triggered,
+        "current_price": current_price,
+    }
+
+
+def scan_one(cur, stock_id, symbol):
+    """Tek hisse için veri topla + veritabanına yaz (tek seferlik test için)."""
+    data = scan_one_data(symbol)
+    save_snapshot(cur, stock_id, data["weekly_vals"], data["daily_vals"], data["filter_results"])
+    if not data["triggered"] or data["current_price"] is None:
+        return "no_signal"
+    save_signal(cur, stock_id, data["triggered"], data["current_price"])
+    track_stock(cur, stock_id, data["triggered"], data["current_price"])
     return "signal"
 
 
@@ -180,24 +193,37 @@ def run_full_scan():
         with conn.cursor() as cur:
             cur.execute("SELECT id, symbol FROM stocks WHERE is_active = TRUE ORDER BY symbol")
             stocks = cur.fetchall()
+            symbol_to_id = {symbol: stock_id for stock_id, symbol in stocks}
             results["total"] = len(stocks)
-            print(f"🔍 Tam tarama başladı — {len(stocks)} hisse (4 filtre + snapshot)")
+            print(f"🔍 Tam tarama başladı — {len(stocks)} hisse ({MAX_WORKERS} paralel işlem)")
 
-            for i, (stock_id, symbol) in enumerate(stocks):
-                try:
-                    status = scan_one(cur, stock_id, symbol)
-                    conn.commit()
-                    if status == "signal":
-                        results["signals"] += 1
-                    else:
-                        results["no_signal"] += 1
-                except Exception as err:
-                    conn.rollback()
-                    results["errors"] += 1
-                    print(f"   ❌ {symbol}: {err}")
+            completed = 0
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                futures = {executor.submit(scan_one_data, symbol): symbol for symbol in symbol_to_id}
 
-                if (i + 1) % 10 == 0:
-                    print(f"   {i + 1}/{len(stocks)} tamamlandı...")
+                for future in as_completed(futures):
+                    symbol = futures[future]
+                    stock_id = symbol_to_id[symbol]
+                    completed += 1
+                    try:
+                        data = future.result()
+                        save_snapshot(cur, stock_id, data["weekly_vals"], data["daily_vals"], data["filter_results"])
+
+                        if data["triggered"] and data["current_price"] is not None:
+                            save_signal(cur, stock_id, data["triggered"], data["current_price"])
+                            track_stock(cur, stock_id, data["triggered"], data["current_price"])
+                            results["signals"] += 1
+                        else:
+                            results["no_signal"] += 1
+
+                        conn.commit()
+                    except Exception as err:
+                        conn.rollback()
+                        results["errors"] += 1
+                        print(f"   ❌ {symbol}: {err}")
+
+                    if completed % 20 == 0:
+                        print(f"   {completed}/{len(stocks)} tamamlandı...")
 
     print(f"\n✅ Tarama tamamlandı: {results}")
     return results

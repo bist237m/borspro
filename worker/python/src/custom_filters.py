@@ -145,3 +145,30 @@ FILTER_TIMEFRAME = {
     "HAFTALIK_3": "1wk",
     "GUNLUK_1":   "1d",
 }
+
+
+# ── SNAPSHOT DEĞERLERİ (frontend'de göstermek için) ────────
+
+def _last(series: pd.Series):
+    s = series.dropna()
+    if len(s) == 0:
+        return None
+    val = s.iloc[-1]
+    return float(val) if val == val else None  # NaN kontrolü
+
+
+def compute_snapshot_values(df: pd.DataFrame, cci_length_for_inv1: int) -> dict:
+    """Bir DataFrame (haftalık ya da günlük) için son gösterge değerlerini döndürür."""
+    inv1 = inv1_series(df, cci_length=cci_length_for_inv1, wma_length=9)
+    ema21 = ema_series(df["Close"], 21)
+    macdas = macdas_series(df["Close"])
+    hlc3 = (df["High"] + df["Low"] + df["Close"]) / 3
+    cci20 = cci_series(hlc3, 20)
+
+    return {
+        "inv1":   _last(inv1),
+        "ema21":  _last(ema21),
+        "macdas": _last(macdas),
+        "cci20":  _last(cci20),
+        "price":  _last(df["Close"]),
+    }
