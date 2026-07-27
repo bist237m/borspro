@@ -40,6 +40,38 @@ def save_signal(cur, stock_id, triggered, current_price):
     )
 
 
+def _apply_price_update(cur, tracked_id, entry_price, max_price, m5, m10, m20, m30, current_price):
+    """Tek bir tracked_signals satırının fiyat/değişim/max/milestone alanlarını günceller.
+    filter_types'a DOKUNMAZ — hem track_stock (yeni tetikleme) hem de
+    refresh_tracked_prices (filtre tetiklenmese bile periyodik güncelleme) bunu paylaşır."""
+    entry_price_f = float(entry_price) if entry_price else current_price
+    change_pct = ((current_price - entry_price_f) / entry_price_f * 100) if entry_price_f else 0
+    new_max = max(float(max_price or 0), current_price)
+
+    if m5  is None and change_pct >= 5:  m5  = "NOW()"
+    if m10 is None and change_pct >= 10: m10 = "NOW()"
+    if m20 is None and change_pct >= 20: m20 = "NOW()"
+    if m30 is None and change_pct >= 30: m30 = "NOW()"
+
+    cur.execute(
+        f"""
+        UPDATE tracked_signals SET
+          current_price  = %s,
+          change_pct     = %s,
+          max_price      = %s,
+          max_price_date = CASE WHEN %s > COALESCE(max_price, 0)
+                                 THEN CURRENT_DATE ELSE max_price_date END,
+          milestone_5_at  = {'NOW()' if m5  == 'NOW()' else 'milestone_5_at'},
+          milestone_10_at = {'NOW()' if m10 == 'NOW()' else 'milestone_10_at'},
+          milestone_20_at = {'NOW()' if m20 == 'NOW()' else 'milestone_20_at'},
+          milestone_30_at = {'NOW()' if m30 == 'NOW()' else 'milestone_30_at'},
+          updated_at     = NOW()
+        WHERE id = %s
+        """,
+        (current_price, change_pct, new_max, current_price, tracked_id),
+    )
+
+
 def track_stock(cur, stock_id, triggered, current_price):
     cur.execute(
         "SELECT id, filter_types, entry_price, max_price, "
@@ -54,33 +86,12 @@ def track_stock(cur, stock_id, triggered, current_price):
          m5, m10, m20, m30) = row
         existing_set = set(existing_types.split(",")) if existing_types else set()
         merged_types = ",".join(sorted(existing_set | set(triggered)))
-        new_max = max(float(max_price or 0), current_price)
-        entry_price_f = float(entry_price) if entry_price else current_price
-        change_pct = ((current_price - entry_price_f) / entry_price_f * 100) if entry_price_f else 0
-
-        if m5  is None and change_pct >= 5:  m5  = "NOW()"
-        if m10 is None and change_pct >= 10: m10 = "NOW()"
-        if m20 is None and change_pct >= 20: m20 = "NOW()"
-        if m30 is None and change_pct >= 30: m30 = "NOW()"
 
         cur.execute(
-            f"""
-            UPDATE tracked_signals SET
-              filter_types   = %s,
-              current_price  = %s,
-              change_pct     = %s,
-              max_price      = %s,
-              max_price_date = CASE WHEN %s > COALESCE(max_price, 0)
-                                     THEN CURRENT_DATE ELSE max_price_date END,
-              milestone_5_at  = {'NOW()' if m5  == 'NOW()' else 'milestone_5_at'},
-              milestone_10_at = {'NOW()' if m10 == 'NOW()' else 'milestone_10_at'},
-              milestone_20_at = {'NOW()' if m20 == 'NOW()' else 'milestone_20_at'},
-              milestone_30_at = {'NOW()' if m30 == 'NOW()' else 'milestone_30_at'},
-              updated_at     = NOW()
-            WHERE id = %s
-            """,
-            (merged_types, current_price, change_pct, new_max, current_price, tracked_id),
+            "UPDATE tracked_signals SET filter_types = %s WHERE id = %s",
+            (merged_types, tracked_id),
         )
+        _apply_price_update(cur, tracked_id, entry_price, max_price, m5, m10, m20, m30, current_price)
     else:
         signal_types = ",".join(triggered)
         cur.execute(
@@ -91,6 +102,31 @@ def track_stock(cur, stock_id, triggered, current_price):
             """,
             (stock_id, signal_types, current_price, current_price, current_price),
         )
+
+
+def refresh_tracked_prices(cur):
+    """Filtre yeniden tetiklenmese bile TÜM aktif takip edilen hisselerin
+    current_price/change_pct/max_price/milestone'larını en son stock_quotes
+    değerine göre günceller. --sync her çalıştığında (30 dk'da bir) çağrılır,
+    böylece fiyat takibi filtrenin yeniden tetiklenmesine bağımlı kalmaz."""
+    cur.execute(
+        """
+        SELECT ts.id, ts.entry_price, ts.max_price,
+               ts.milestone_5_at, ts.milestone_10_at, ts.milestone_20_at, ts.milestone_30_at,
+               q.price
+        FROM tracked_signals ts
+        JOIN stock_quotes q ON q.stock_id = ts.stock_id
+        WHERE ts.is_active = TRUE AND q.price IS NOT NULL
+        """
+    )
+    rows = cur.fetchall()
+
+    updated = 0
+    for (tracked_id, entry_price, max_price, m5, m10, m20, m30, quote_price) in rows:
+        _apply_price_update(cur, tracked_id, entry_price, max_price, m5, m10, m20, m30, float(quote_price))
+        updated += 1
+
+    return updated
 
 
 def save_snapshot(cur, stock_id, weekly_vals, daily_vals, filter_results):

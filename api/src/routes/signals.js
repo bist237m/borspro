@@ -92,24 +92,58 @@ router.get("/performance", authenticate, async (req, res, next) => {
 });
 
 // GET /api/signals/extra-tracked — ek filtreleri (Filtre 5/6) sağlayan hisseler
+// + tracked_signals'tan giriş tarihi / milestone gün sayısı (diğer filtrelerle aynı takip mantığı)
 router.get("/extra-tracked", authenticate, async (req, res, next) => {
   try {
     const { rows } = await query(
-      `SELECT efr.filter_code, efr.timeframe, efr.updated_at, s.symbol, s.name
+      `SELECT efr.filter_code, efr.timeframe, efr.updated_at,
+              s.id AS stock_id, s.symbol, s.name
        FROM extra_filter_results efr
        JOIN stocks s ON s.id = efr.stock_id
        WHERE efr.result = TRUE
        ORDER BY efr.filter_code, efr.timeframe, s.symbol`
     );
 
-    // Filtre+zaman dilimi bazında grupla
+    if (!rows.length) return res.json([]);
+
+    const stockIds = [...new Set(rows.map(r => r.stock_id))];
+    const { rows: trackedRows } = await query(
+      `SELECT stock_id, filter_types, change_pct, entry_date,
+              milestone_5_at, milestone_10_at, milestone_20_at, milestone_30_at
+       FROM tracked_signals
+       WHERE is_active = TRUE AND stock_id = ANY($1::uuid[])`,
+      [stockIds]
+    );
+    const trackingByStock = {};
+    for (const t of trackedRows) trackingByStock[t.stock_id] = t;
+
+    // extra_filter_results timeframe küçük harf tutuyor (4h,1d,1wk,2h,30m),
+    // tracked_signals.filter_types ise büyük harf sonek kullanıyor (_4H,_1D,...)
+    const TF_SUFFIX = { "4h": "4H", "1d": "1D", "1wk": "1WK", "2h": "2H", "30m": "30M" };
+    const daysBetween = (a, b) => a && b ? Math.round((new Date(a) - new Date(b)) / 86400000) : null;
+
     const grouped = {};
     for (const row of rows) {
       const key = `${row.filter_code}|${row.timeframe}`;
       if (!grouped[key]) {
         grouped[key] = { filter_code: row.filter_code, timeframe: row.timeframe, stocks: [] };
       }
-      grouped[key].stocks.push({ symbol: row.symbol, name: row.name, updated_at: row.updated_at });
+
+      const combinedCode = `${row.filter_code}_${TF_SUFFIX[row.timeframe] || row.timeframe.toUpperCase()}`;
+      const t = trackingByStock[row.stock_id];
+      const matches = t?.filter_types && t.filter_types.split(",").includes(combinedCode);
+
+      grouped[key].stocks.push({
+        symbol: row.symbol,
+        name: row.name,
+        updated_at: row.updated_at,
+        entry_date:  matches ? t.entry_date : null,
+        change_pct:  matches ? t.change_pct : null,
+        days_to_5:   matches ? daysBetween(t.milestone_5_at,  t.entry_date) : null,
+        days_to_10:  matches ? daysBetween(t.milestone_10_at, t.entry_date) : null,
+        days_to_20:  matches ? daysBetween(t.milestone_20_at, t.entry_date) : null,
+        days_to_30:  matches ? daysBetween(t.milestone_30_at, t.entry_date) : null,
+      });
     }
 
     res.json(Object.values(grouped));

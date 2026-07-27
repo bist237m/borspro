@@ -7,6 +7,7 @@
 
 import borsapy as bp
 from db import query, execute, get_connection
+from scan import refresh_tracked_prices
 
 
 def run_sync_quotes():
@@ -58,6 +59,18 @@ def run_sync_quotes():
             print(f"   ❌ {symbol}: {err}")
 
     print(f"   ✅ Güncellenen: {updated} | Hata: {errors}")
+
+    # ── Takip edilen hisselerin fiyat/değişim/milestone'larını yenile ──
+    # Filtre o gün yeniden tetiklenmese bile bu hisseler burada güncellenir —
+    # yoksa current_price/change_pct giriş anındaki değerde donup kalır.
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                refreshed = refresh_tracked_prices(cur)
+            conn.commit()
+        print(f"   🔄 Takip edilen {refreshed} hissenin fiyat/milestone'u yenilendi")
+    except Exception as err:
+        print(f"   ⚠️  Takip fiyat yenileme hatası: {err}")
 
     # ── Piyasa şeridi: BIST100, USD/TRY, Altın ──
     try:

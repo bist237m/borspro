@@ -252,7 +252,7 @@ function FilterPerformanceSection() {
                 <div onClick={() => setExpanded(isOpen ? null : s.filter_code)} style={{ padding: 14, cursor: "pointer" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
                     <span style={{ fontSize: 13, fontWeight: 700 }}>
-                      {isOpen ? "▾" : "▸"} {FILTER_LABELS[s.filter_code.toLowerCase()] || s.filter_code}
+                      {isOpen ? "▾" : "▸"} {FILTER_LABELS[s.filter_code] || FILTER_LABELS[s.filter_code.toLowerCase()] || s.filter_code}
                     </span>
                     <span style={{
                       fontFamily: "var(--font-m)", fontSize: 12, fontWeight: 700, padding: "2px 10px", borderRadius: 20,
@@ -295,6 +295,83 @@ function FilterPerformanceSection() {
                               <Td>{it.days_to_10 ?? "—"}</Td>
                               <Td>{it.days_to_20 ?? "—"}</Td>
                               <Td>{it.days_to_30 ?? "—"}</Td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ── 4b. EK FİLTRELER — ANLIK YAKALANANLAR (Filtre 5 & 6) ────
+// extra_filter_results tablosu timeframe'i küçük harfle tutuyor (4h, 1d, 1wk, 2h, 30m),
+// filterDefinitions.js ise "IFT5_EMA_MACD_4H" gibi birleşik-büyük-harf key kullanıyor —
+// bu yüzden ikisini birleştirip doğru key'i burada kuruyoruz.
+const EXTRA_TF_SUFFIX = { "4h": "4H", "1d": "1D", "1wk": "1WK", "2h": "2H", "30m": "30M" };
+
+function ExtraFilterTrackingSection() {
+  const { data: groups, loading } = useApi(() => signalsApi.extraTracked(), []);
+  const [expanded, setExpanded] = useState(null); // hangi kart açık
+
+  return (
+    <Card title="Ek Filtreler — Anlık Yakalananlar (Filtre 5 & 6)">
+      {loading ? <Spinner /> : !groups?.length ? (
+        <div style={{ textAlign: "center", padding: 20, fontSize: 13, color: "var(--text-3)" }}>
+          Şu an hiçbir hissede ek filtre tetiklenmiş değil.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {groups.map(g => {
+            const groupKey = `${g.filter_code}|${g.timeframe}`;
+            const combinedCode = `${g.filter_code}_${EXTRA_TF_SUFFIX[g.timeframe] || g.timeframe.toUpperCase()}`;
+            const isOpen = expanded === groupKey;
+            return (
+              <div key={groupKey} style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
+                <div onClick={() => setExpanded(isOpen ? null : groupKey)} style={{ padding: 14, cursor: "pointer" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700 }}>
+                      {isOpen ? "▾" : "▸"} {FILTER_LABELS[combinedCode] || combinedCode}
+                    </span>
+                    <span style={{
+                      fontFamily: "var(--font-m)", fontSize: 12, fontWeight: 700, padding: "2px 10px", borderRadius: 20,
+                      background: "var(--green-bg)", color: "var(--green)",
+                    }}>{g.stocks.length} hisse</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-3)" }}>{FILTER_DEFINITIONS[combinedCode] || ""}</div>
+                </div>
+
+                {isOpen && (
+                  <div style={{ borderTop: "1px solid var(--border)", background: "var(--bg)", padding: "10px 14px", overflowX: "auto" }}>
+                    {!g.stocks?.length ? (
+                      <div style={{ fontSize: 12, color: "var(--text-3)", padding: "8px 0" }}>Hisse bulunamadı.</div>
+                    ) : (
+                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr>
+                            <Th>Hisse</Th><Th>Giriş Tarihi</Th><Th>Güncel Değişim</Th>
+                            <Th>%5'e gün</Th><Th>%10'a gün</Th><Th>%20'ye gün</Th><Th>%30'a gün</Th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {g.stocks.map((s, i) => (
+                            <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
+                              <Td style={{ fontFamily: "var(--font)", fontWeight: 600 }}>{s.symbol}</Td>
+                              <Td>{s.entry_date ? fmtDate(s.entry_date) : "—"}</Td>
+                              <Td style={{ color: s.change_pct == null ? "var(--text-3)" : Number(s.change_pct) >= 0 ? "var(--green)" : "var(--red)" }}>
+                                {s.change_pct == null ? "—" : `${Number(s.change_pct) >= 0 ? "+" : ""}${fmt(s.change_pct)}%`}
+                              </Td>
+                              <Td>{s.days_to_5  ?? "—"}</Td>
+                              <Td>{s.days_to_10 ?? "—"}</Td>
+                              <Td>{s.days_to_20 ?? "—"}</Td>
+                              <Td>{s.days_to_30 ?? "—"}</Td>
                             </tr>
                           ))}
                         </tbody>
@@ -432,6 +509,7 @@ export default function ReportsPage() {
       <TransactionHistorySection portfolioId={defaultPort?.id} />
       <CashFlowSection portfolioId={defaultPort?.id} />
       <FilterPerformanceSection />
+      <ExtraFilterTrackingSection />
       <TaxSummarySection />
       <AiCommentaryHistorySection />
     </div>
