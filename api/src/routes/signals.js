@@ -4,7 +4,7 @@ import { authenticate } from "../middleware/authenticate.js";
 
 const router = Router();
 
-// GET /api/signals/tracked  — filtreye giren (takip edilen) tüm hisseler
+// GET /api/signals/tracked — filtreye giren (takip edilen) tüm hisseler
 router.get("/tracked", authenticate, async (req, res, next) => {
   try {
     const { rows } = await query(

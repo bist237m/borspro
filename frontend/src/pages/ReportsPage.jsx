@@ -237,6 +237,7 @@ function CashFlowSection({ portfolioId }) {
 // ── 4. FİLTRE PERFORMANS RAPORU ─────────────────────────────
 function FilterPerformanceSection() {
   const { data: stats, loading } = useApi(() => signalsApi.performance(), []);
+  const [expanded, setExpanded] = useState(null); // hangi filtre kartı açık
 
   return (
     <Card title="Filtre Performans Raporu (İsabet Oranı)">
@@ -244,27 +245,66 @@ function FilterPerformanceSection() {
         <div style={{ textAlign: "center", padding: 20, fontSize: 13, color: "var(--text-3)" }}>Henüz yeterli veri yok.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {stats.map(s => (
-            <div key={s.filter_code} style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 700 }}>{FILTER_LABELS[s.filter_code.toLowerCase()] || s.filter_code}</span>
-                <span style={{
-                  fontFamily: "var(--font-m)", fontSize: 12, fontWeight: 700, padding: "2px 10px", borderRadius: 20,
-                  background: s.win_rate >= 50 ? "var(--green-bg)" : "var(--red-bg)",
-                  color: s.win_rate >= 50 ? "var(--green)" : "var(--red)",
-                }}>%{s.win_rate} kazanma oranı</span>
+          {stats.map(s => {
+            const isOpen = expanded === s.filter_code;
+            return (
+              <div key={s.filter_code} style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
+                <div onClick={() => setExpanded(isOpen ? null : s.filter_code)} style={{ padding: 14, cursor: "pointer" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700 }}>
+                      {isOpen ? "▾" : "▸"} {FILTER_LABELS[s.filter_code.toLowerCase()] || s.filter_code}
+                    </span>
+                    <span style={{
+                      fontFamily: "var(--font-m)", fontSize: 12, fontWeight: 700, padding: "2px 10px", borderRadius: 20,
+                      background: s.win_rate >= 50 ? "var(--green-bg)" : "var(--red-bg)",
+                      color: s.win_rate >= 50 ? "var(--green)" : "var(--red)",
+                    }}>%{s.win_rate} kazanma oranı</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 10 }}>{FILTER_DEFINITIONS[s.filter_code]}</div>
+                  <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 12 }}>
+                    <div><span style={{ color: "var(--text-3)" }}>Toplam örnek: </span><b style={{ fontFamily: "var(--font-m)" }}>{s.total}</b></div>
+                    <div><span style={{ color: "var(--text-3)" }}>Ort. getiri: </span><b style={{ fontFamily: "var(--font-m)", color: s.avg_change_pct >= 0 ? "var(--green)" : "var(--red)" }}>{s.avg_change_pct >= 0 ? "+" : ""}{fmt(s.avg_change_pct)}%</b></div>
+                    <div><span style={{ color: "var(--text-3)" }}>%5'e ort. gün: </span><b style={{ fontFamily: "var(--font-m)" }}>{s.avg_days_to_5 != null ? fmt(s.avg_days_to_5, 1) : "—"}</b></div>
+                    <div><span style={{ color: "var(--text-3)" }}>%10'a ort. gün: </span><b style={{ fontFamily: "var(--font-m)" }}>{s.avg_days_to_10 != null ? fmt(s.avg_days_to_10, 1) : "—"}</b></div>
+                    <div><span style={{ color: "var(--text-3)" }}>%20'ye ulaşan: </span><b style={{ fontFamily: "var(--font-m)" }}>{s.reached_20}/{s.total}</b></div>
+                    <div><span style={{ color: "var(--text-3)" }}>%30'a ulaşan: </span><b style={{ fontFamily: "var(--font-m)" }}>{s.reached_30}/{s.total}</b></div>
+                  </div>
+                </div>
+
+                {isOpen && (
+                  <div style={{ borderTop: "1px solid var(--border)", background: "var(--bg)", padding: "10px 14px", overflowX: "auto" }}>
+                    {!s.items?.length ? (
+                      <div style={{ fontSize: 12, color: "var(--text-3)", padding: "8px 0" }}>Hisse detayı bulunamadı.</div>
+                    ) : (
+                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr>
+                            <Th>Hisse</Th><Th>Giriş Tarihi</Th><Th>Güncel Değişim</Th>
+                            <Th>%5'e gün</Th><Th>%10'a gün</Th><Th>%20'ye gün</Th><Th>%30'a gün</Th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {s.items.map((it, i) => (
+                            <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
+                              <Td style={{ fontFamily: "var(--font)", fontWeight: 600 }}>{it.symbol}</Td>
+                              <Td>{fmtDate(it.entry_date)}</Td>
+                              <Td style={{ color: Number(it.change_pct) >= 0 ? "var(--green)" : "var(--red)" }}>
+                                {Number(it.change_pct) >= 0 ? "+" : ""}{fmt(it.change_pct)}%
+                              </Td>
+                              <Td>{it.days_to_5  ?? "—"}</Td>
+                              <Td>{it.days_to_10 ?? "—"}</Td>
+                              <Td>{it.days_to_20 ?? "—"}</Td>
+                              <Td>{it.days_to_30 ?? "—"}</Td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )}
               </div>
-              <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 10 }}>{FILTER_DEFINITIONS[s.filter_code]}</div>
-              <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 12 }}>
-                <div><span style={{ color: "var(--text-3)" }}>Toplam örnek: </span><b style={{ fontFamily: "var(--font-m)" }}>{s.total}</b></div>
-                <div><span style={{ color: "var(--text-3)" }}>Ort. getiri: </span><b style={{ fontFamily: "var(--font-m)", color: s.avg_change_pct >= 0 ? "var(--green)" : "var(--red)" }}>{s.avg_change_pct >= 0 ? "+" : ""}{fmt(s.avg_change_pct)}%</b></div>
-                <div><span style={{ color: "var(--text-3)" }}>%5'e ort. gün: </span><b style={{ fontFamily: "var(--font-m)" }}>{s.avg_days_to_5 != null ? fmt(s.avg_days_to_5, 1) : "—"}</b></div>
-                <div><span style={{ color: "var(--text-3)" }}>%10'a ort. gün: </span><b style={{ fontFamily: "var(--font-m)" }}>{s.avg_days_to_10 != null ? fmt(s.avg_days_to_10, 1) : "—"}</b></div>
-                <div><span style={{ color: "var(--text-3)" }}>%20'ye ulaşan: </span><b style={{ fontFamily: "var(--font-m)" }}>{s.reached_20}/{s.total}</b></div>
-                <div><span style={{ color: "var(--text-3)" }}>%30'a ulaşan: </span><b style={{ fontFamily: "var(--font-m)" }}>{s.reached_30}/{s.total}</b></div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </Card>
