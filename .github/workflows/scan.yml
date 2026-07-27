@@ -2,11 +2,26 @@ name: BIST Tarayıcı
 
 on:
   schedule:
-    # Her iş günü 17:25 TRT — ana filtre taraması (sync + scan)
+    # Piyasa saatlerinde (10:00-16:30) her 30 dakikada bir — sadece fiyat güncelleme, hızlı
+    - cron: '*/30 10-16 * * 1-5'
+      timezone: 'Europe/Istanbul'
+    # Her iş günü 17:25 TRT — kapanışa yakın fiyat + ana filtre taraması (sync + scan)
     - cron: '25 17 * * 1-5'
       timezone: 'Europe/Istanbul'
-    # Her Pazar 20:00 TRT — temel veri + KAP haberleri (haftalık, daha seyrek)
-    - cron: '0 20 * * 0'
+    # Piyasa saatlerinde 2 saatte bir (10-16 arası) — Filtre 5/6 (4h/2h/30m/1d/1wk zaman dilimleri)
+    - cron: '0 10-16/2 * * 1-5'
+      timezone: 'Europe/Istanbul'
+    # Salı-Cumartesi 02:00 TRT — bir önceki iş gününün geçmiş verisini çek (piyasa kapalıyken)
+    - cron: '0 2 * * 2-6'
+      timezone: 'Europe/Istanbul'
+    # Her iş günü 08:00 TRT — piyasa açılmadan önce temel+teknik veri (TradingView + İş Yatırım)
+    - cron: '0 8 * * 1-5'
+      timezone: 'Europe/Istanbul'
+    # Her gün 4 saatte bir — KAP haberleri
+    - cron: '0 */4 * * *'
+      timezone: 'Europe/Istanbul'
+    # Her Pazartesi 04:00 TRT — İş Yatırım kriter listesi (nadiren değişir, haftalık yeterli)
+    - cron: '0 4 * * 1'
       timezone: 'Europe/Istanbul'
   workflow_dispatch:
     inputs:
@@ -21,8 +36,15 @@ on:
           - sync          # sadece fiyat güncelleme
           - history       # 1 yıllık geçmiş veri çek
           - extra_scan    # Filtre 5 ve 6
-          - fundamentals  # temel + teknik veri (FAVÖK, RSI vb.)
+          - fundamentals  # temel + teknik veri (FAVÖK, RSI, İş Yatırım PE/PB/ROE vb.)
           - news          # KAP haberleri
+          - kriterleri    # İş Yatırım screener kriter listesini txt'e kaydet
+
+# Aynı anda birden fazla çalışma DB'ye eşzamanlı yazmasın diye kuyruğa alınır
+# (iptal etmez, sadece sıraya sokar — cancel-in-progress: false)
+concurrency:
+  group: bist-tarayici
+  cancel-in-progress: false
 
 jobs:
   tarama:
@@ -46,11 +68,16 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            if [ "${{ github.event.schedule }}" = "25 17 * * 1-5" ]; then
-              ACTION="full"
-            else
-              ACTION="weekly"
-            fi
+            case "${{ github.event.schedule }}" in
+              '*/30 10-16 * * 1-5') ACTION="sync" ;;
+              '25 17 * * 1-5')      ACTION="full" ;;
+              '0 10-16/2 * * 1-5')  ACTION="extra_scan" ;;
+              '0 2 * * 2-6')        ACTION="history" ;;
+              '0 8 * * 1-5')        ACTION="fundamentals" ;;
+              '0 */4 * * *')        ACTION="news" ;;
+              '0 4 * * 1')          ACTION="kriterleri" ;;
+              *)                    ACTION="full" ;;
+            esac
           else
             ACTION="${{ github.event.inputs.action || 'full' }}"
           fi
@@ -71,6 +98,6 @@ jobs:
             python main.py --fundamentals
           elif [ "$ACTION" = "news" ]; then
             python main.py --news
-          elif [ "$ACTION" = "weekly" ]; then
-            python main.py --fundamentals --news
+          elif [ "$ACTION" = "kriterleri" ]; then
+            python main.py --kriterleri
           fi

@@ -1,0 +1,34 @@
+--- İŞ YATIRIM SCREENER TÜM KRİTERLERİ ---
+
+criteria_60   | Piyasa Değeri (mn $)
+criteria_58   | Kapanış (TL)
+criteria_167  | Getiri Potansiyeli (%)
+criteria_146  | 3 Ay (mn $)
+criteria_156  | {ID2} Temettü Verimi (%)
+criteria_157  | {ID3} Temettü Verimi (%)
+criteria_294  | Hedef Fiyat Son 1 Haftadaki Değişim (TL)
+criteria_300  | {ID2} Son 1 Haftadaki Değişim Net Kar
+criteria_53   | 1 Hafta Rel. (%)
+criteria_273  | {ID2} Net Kar Marjı (%)
+criteria_73   | {ID2} Net Kar Büyümesi(%)
+criteria_166  | Hedef Fiyat (TL)
+criteria_169  | {ID2} Net Kar (mn TL)
+criteria_338  | Önceki Hedef Fiyat (TL)
+criteria_132  | Son Öneri Tarihi
+criteria_323  | Bir Önceki Öneri Tarihi
+criteria_151  | {ID2} Hisse Başı Temettü (TL)
+criteria_161  | {ID2} Temettü Dağıtma Oranı (%)
+criteria_134  | {ID2} Temettü Tarihi
+criteria_152  | {ID3} Hisse Başı Temettü (TL)
+criteria_162  | {ID3} Temettü Dağıtma Oranı (%)
+criteria_326  | {ID3} Toplam Temettü (mn TL)
+criteria_333  | Cari F/K
+criteria_335  | Cari PD/DD
+criteria_59   | Piyasa Değeri (mn TL)
+criteria_334  | Cari FD/FAVÖK
+criteria_364  | Sektör F/K Değeri
+criteria_365  | Sektör FD/FAVÖK
+criteria_368  | Sektöre Göre F/K İskontosu
+criteria_371  | Sektöre Göre FD/FAVÖK İskontosu
+criteria_369  | Sektöre Göre PD/DD İskontosu
+criteria_366  | Sektör PD/DD

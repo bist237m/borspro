@@ -1,6 +1,14 @@
 # python/src/fundamentals.py
 # Temel + teknik veri — TradingView'ın toplu sorgu API'sinden TEK istekte.
+#
+# BİRLEŞTİRİLDİ (eskiden sync_fundamentals.py ayrı çalışıyordu):
+# PE/PB/ROE/Piyasa Değeri/Net Kar için İş Yatırım Screener (KAP kaynaklı,
+# Türk hisseleri için genelde daha güncel/isabetli) önceliklidir. Diğer
+# tüm alanlar (FAVÖK, 52 hafta yüksek/düşük, büyüme oranları, RSI, SMA50,
+# hacim, pivot, MACD) sadece TradingView'da var, oradan geliyor.
 
+import pandas as pd
+import borsapy as bp
 from tradingview_screener import Query
 from db import get_connection
 
@@ -29,7 +37,47 @@ def fetch_all(symbols: list[str]):
     return df
 
 
-def save_fundamentals(cur, stock_id, row):
+def fetch_isyatirim(symbols: list[str]) -> dict:
+    """İş Yatırım Screener'dan PE/PB/ROE/Piyasa Değeri/Net Kar çeker (TEK istek).
+    Bu alanlar KAP'a dayandığı için Türk hisselerinde TradingView'dan
+    daha güncel olabiliyor — bu yüzden save_fundamentals'ta önceliklidir."""
+    try:
+        screener = bp.Screener()
+        screener.add_filter("pe", min=-9999, max=99999)
+        screener.add_filter("pb", min=-9999, max=99999)
+        screener.add_filter("roe", min=-9999, max=99999)
+        df = screener.run()
+    except Exception as err:
+        print(f"   ⚠️  İş Yatırım Screener hatası, bu alanlar TradingView değerinde kalacak: {err}")
+        return {}
+
+    if df is None or df.empty:
+        return {}
+
+    df.set_index("symbol", inplace=True)
+    result = {}
+    for symbol in symbols:
+        if symbol not in df.index:
+            continue
+        row = df.loc[symbol]
+        if isinstance(row, pd.DataFrame):  # aynı sembol birden fazla satırda gelirse
+            row = row.iloc[0]
+        result[symbol] = row
+    return result
+
+
+def _safe_float_tr(val):
+    """İş Yatırım'ın virgüllü sayı formatını (örn. '1.234,56') float'a çevirir."""
+    if val is None or val != val or val == "":
+        return None
+    try:
+        val_str = str(val).replace(".", "").replace(",", ".")
+        return float(val_str)
+    except Exception:
+        return None
+
+
+def save_fundamentals(cur, stock_id, row, iy_row=None):
     def clean(v):
         return None if v is None or v != v else float(v)  # NaN kontrolü
 
@@ -52,6 +100,20 @@ def save_fundamentals(cur, stock_id, row):
     pivot_r1   = clean(row.get("Pivot.M.Classic.R1"))
     macd_line  = clean(row.get("MACD.macd"))
     macd_sig   = clean(row.get("MACD.signal"))
+
+    # İş Yatırım verisi varsa bu 5 alanda TradingView'ın önüne geçer (KAP kaynaklı)
+    if iy_row is not None:
+        iy_pe  = _safe_float_tr(iy_row.get("criteria_28"))    # F/K
+        iy_pb  = _safe_float_tr(iy_row.get("criteria_30"))    # PD/DD
+        iy_roe = _safe_float_tr(iy_row.get("criteria_422"))   # ROE
+        iy_mc  = _safe_float_tr(iy_row.get("criteria_59"))    # Piyasa Değeri (mn TL)
+        iy_nk  = _safe_float_tr(iy_row.get("criteria_169"))   # Net Kar (mn TL)
+
+        if iy_pe  is not None: pe_ratio   = iy_pe
+        if iy_pb  is not None: pb_ratio   = iy_pb
+        if iy_roe is not None: roe        = iy_roe
+        if iy_mc  is not None: market_cap = iy_mc
+        if iy_nk  is not None: net_kar    = iy_nk
 
     cur.execute(
         """
@@ -96,9 +158,15 @@ def run_fetch_fundamentals():
             stocks = cur.fetchall()
             symbol_to_id = {symbol: stock_id for stock_id, symbol in stocks}
 
-            print(f"📊 TradingView'dan {len(symbol_to_id)} hisse için temel+teknik veri çekiliyor...")
-            df = fetch_all(list(symbol_to_id.keys()))
-            print(f"   {len(df)} hisse için veri döndü")
+            symbols = list(symbol_to_id.keys())
+
+            print(f"📊 TradingView'dan {len(symbols)} hisse için temel+teknik veri çekiliyor...")
+            df = fetch_all(symbols)
+            print(f"   {len(df)} hisse için TradingView verisi döndü")
+
+            print("📊 İş Yatırım Screener'dan PE/PB/ROE/Piyasa Değeri/Net Kar çekiliyor...")
+            iy_data = fetch_isyatirim(symbols)
+            print(f"   {len(iy_data)} hisse için İş Yatırım verisi döndü")
 
             saved, skipped = 0, 0
             for _, row in df.iterrows():
@@ -108,7 +176,7 @@ def run_fetch_fundamentals():
                     skipped += 1
                     continue
                 try:
-                    save_fundamentals(cur, stock_id, row)
+                    save_fundamentals(cur, stock_id, row, iy_data.get(symbol))
                     saved += 1
                 except Exception as err:
                     print(f"   ❌ {symbol}: {err}")

@@ -4,16 +4,23 @@
 import os
 import psycopg2
 import psycopg2.extras
+from psycopg2 import pool         # YENİ EKLENDİ
+from contextlib import contextmanager # YENİ EKLENDİ
 from dotenv import load_dotenv
-
 load_dotenv()
 
 DATABASE_URL = os.environ["DATABASE_URL"]
+db_pool = pool.ThreadedConnectionPool(1, 20, dsn=DATABASE_URL)
 
 
+@contextmanager
 def get_connection():
-    """Yeni bir bağlantı açar. `with get_connection() as conn:` şeklinde kullan."""
-    return psycopg2.connect(DATABASE_URL)
+    """Havuzdan (pool) hazır bir bağlantı alır ve iş bitince geri bırakır."""
+    conn = db_pool.getconn()
+    try:
+        yield conn
+    finally:
+        db_pool.putconn(conn)
 
 
 def query(sql, params=None):

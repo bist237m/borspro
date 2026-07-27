@@ -3,7 +3,8 @@
 
 import time
 import borsapy as bp
-from db import query, execute
+from db import query, get_connection
+import psycopg2.extras
 
 
 def run_sync_history(period: str = "1y"):
@@ -16,32 +17,41 @@ def run_sync_history(period: str = "1y"):
         symbol, stock_id = row["symbol"], row["id"]
         try:
             df = bp.Ticker(symbol).history(period=period)
-            count = 0
+            records = []
+            
+            # 1. Verileri tek tek göndermek yerine önce bir listede (records) topluyoruz
             for date, bar in df.iterrows():
-                execute(
-                    """
-                    INSERT INTO price_history (stock_id, price_date, open, high, low, close, volume)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (stock_id, price_date) DO UPDATE SET
-                      open   = EXCLUDED.open,
-                      high   = EXCLUDED.high,
-                      low    = EXCLUDED.low,
-                      close  = EXCLUDED.close,
-                      volume = EXCLUDED.volume
-                    """,
-                    (
-                        stock_id,
-                        date.date(),
-                        float(bar["Open"]),
-                        float(bar["High"]),
-                        float(bar["Low"]),
-                        float(bar["Close"]),
-                        int(bar["Volume"]) if not pd_isna(bar["Volume"]) else 0,
-                    ),
-                )
-                count += 1
+                records.append((
+                    stock_id,
+                    date.date(),
+                    float(bar["Open"]),
+                    float(bar["High"]),
+                    float(bar["Low"]),
+                    float(bar["Close"]),
+                    int(bar["Volume"]) if not pd_isna(bar["Volume"]) else 0,
+                ))
+            
+            # 2. Toplanan listeyi TEK SEFERDE veritabanına yazıyoruz
+            if records:
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        insert_query = """
+                        INSERT INTO price_history (stock_id, price_date, open, high, low, close, volume)
+                        VALUES %s
+                        ON CONFLICT (stock_id, price_date) DO UPDATE SET
+                          open   = EXCLUDED.open,
+                          high   = EXCLUDED.high,
+                          low    = EXCLUDED.low,
+                          close  = EXCLUDED.close,
+                          volume = EXCLUDED.volume
+                        """
+                        psycopg2.extras.execute_values(cur, insert_query, records)
+                    # execute_values sonrası commit etmeyi unutmuyoruz
+                    conn.commit()
+
+            count = len(records)
             total += count
-            print(f"   ✅ {symbol}: {count} bar")
+            print(f"   ✅ {symbol}: {count} bar toplu kaydedildi")
         except Exception as err:
             errors += 1
             print(f"   ❌ {symbol}: {err}")
