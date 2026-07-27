@@ -23,7 +23,7 @@ export default function TradingViewChart({ symbol, height = "100%" }) {
     const script = document.createElement("script");
     script.type = "text/javascript";
     script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
-    script.async = true;
+    
     script.innerHTML = JSON.stringify({
       autosize: true,
       symbol: `BIST:${symbol}`,
