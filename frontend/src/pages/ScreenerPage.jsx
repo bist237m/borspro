@@ -21,6 +21,37 @@ const fmtDate = (d) => {
   return date.toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric" });
 };
 
+// ── Kronoloji yardımcıları ──────────────────────────────────
+// Sinyal tabloları "yeni ne yakalandı?" sorusuna cevap verir; bu yüzden
+// tarihleri göreceli gösterip taze girişleri rozetle işaretliyoruz.
+const daysAgo = (d) => {
+  if (!d) return null;
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const day = new Date(date); day.setHours(0, 0, 0, 0);
+  return Math.round((today - day) / 86400000);
+};
+const relDate = (d) => {
+  const n = daysAgo(d);
+  if (n == null) return "—";
+  if (n <= 0) return "Bugün";
+  if (n === 1) return "Dün";
+  if (n < 7)  return `${n} gün önce`;
+  if (n < 30) return `${Math.floor(n / 7)} hafta önce`;
+  return new Date(d).toLocaleDateString("tr-TR", { day: "2-digit", month: "short", year: "2-digit" });
+};
+const isNewEntry = (d) => { const n = daysAgo(d); return n != null && n <= 1; };
+const byEntryDateDesc = (a, b) => new Date(b.entry_date || 0) - new Date(a.entry_date || 0);
+
+const NewBadge = () => (
+  <span style={{
+    fontSize: 9, fontWeight: 700, letterSpacing: "0.05em",
+    padding: "1px 6px", borderRadius: 4, marginLeft: 6, verticalAlign: "middle",
+    background: "var(--accent)", color: "#fff",
+  }}>YENİ</span>
+);
+
 const PRESETS = [
   { id:"oversold",  label:"🔵 Aşırı Satım",    desc:"RSI < 30",        filters:{ rsi_max:"30" } },
   { id:"overbought",label:"🔴 Aşırı Alım",     desc:"RSI > 70",        filters:{ rsi_min:"70" } },
@@ -516,12 +547,24 @@ function ExtraFilterTable({ onSelectSymbol }) {
                 <span style={{ fontFamily: "var(--font-m)", fontSize: 11, color: "var(--accent)", marginLeft: "auto" }}>{g.stocks.length} hisse</span>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {g.stocks.map(s => (
-                  <span key={s.symbol} onClick={() => onSelectSymbol(s.symbol)} style={{
-                    fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 20,
-                    background: "var(--accent-bg)", color: "var(--accent)", cursor: "pointer",
-                  }}>{s.symbol}</span>
-                ))}
+                {[...g.stocks].sort(byEntryDateDesc).map(s => {
+                  const fresh = isNewEntry(s.entry_date);
+                  return (
+                    <span key={s.symbol} onClick={() => onSelectSymbol(s.symbol)}
+                      title={s.entry_date ? `Giriş: ${fmtDate(s.entry_date)}` : ""}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 6,
+                        fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 20,
+                        background: "var(--accent-bg)", color: "var(--accent)", cursor: "pointer",
+                        border: fresh ? "1px solid var(--accent)" : "1px solid transparent",
+                      }}>
+                      {s.symbol}
+                      <span style={{ fontSize: 10, fontWeight: 500, opacity: 0.75, fontFamily: "var(--font-m)" }}>
+                        {relDate(s.entry_date)}
+                      </span>
+                    </span>
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -533,6 +576,8 @@ function ExtraFilterTable({ onSelectSymbol }) {
 
 // ── FİLTREYE GİREN HİSSELER TABLOSU ─────────────────────────
 function TrackedTable({ list, loading, onSelectSymbol }) {
+  // En yeni sinyal en üstte — bu tablonun işi "yeni ne yakalandı" göstermek.
+  const sortedList = [...(list || [])].sort(byEntryDateDesc);
   return (
     <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--r)" }}>
       <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -559,7 +604,7 @@ function TrackedTable({ list, loading, onSelectSymbol }) {
               </tr>
             </thead>
             <tbody>
-              {list.map(row => {
+              {sortedList.map(row => {
                 const up = Number(row.change_pct) >= 0;
                 return (
                   <tr key={row.id} style={{ borderBottom: "1px solid var(--border)", cursor: "pointer" }}
@@ -567,7 +612,7 @@ function TrackedTable({ list, loading, onSelectSymbol }) {
                     onMouseEnter={e => e.currentTarget.style.background = "var(--bg)"}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                     <td style={{ padding: "10px 14px" }}>
-                      <div style={{ fontWeight: 600, fontSize: 13 }}>{row.symbol}</div>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{row.symbol}{isNewEntry(row.entry_date) && <NewBadge />}</div>
                       <div style={{ fontSize: 10, color: "var(--text-3)" }}>{row.name}</div>
                     </td>
                     <td style={{ padding: "10px 14px", display: "flex", flexWrap: "wrap", gap: 4 }}>
@@ -579,8 +624,8 @@ function TrackedTable({ list, loading, onSelectSymbol }) {
                         }}>{f.label} ⓘ</span>
                       ))}
                     </td>
-                    <td style={{ padding: "10px 14px", fontSize: 12, fontFamily: "var(--font-m)", color: "var(--text-2)" }}>
-                      {new Date(row.entry_date).toLocaleDateString("tr-TR", { day: "2-digit", month: "short", year: "2-digit" })}
+                    <td title={fmtDate(row.entry_date)} style={{ padding: "10px 14px", fontSize: 12, fontFamily: "var(--font-m)", color: isNewEntry(row.entry_date) ? "var(--accent)" : "var(--text-2)", fontWeight: isNewEntry(row.entry_date) ? 600 : 400, cursor: "help" }}>
+                      {relDate(row.entry_date)}
                     </td>
                     <td style={{ padding: "10px 14px", fontSize: 12, fontFamily: "var(--font-m)" }}>₺{fmt(row.entry_price)}</td>
                     <td style={{ padding: "10px 14px", fontSize: 12, fontFamily: "var(--font-m)", fontWeight: 600 }}>₺{fmt(row.current_price)}</td>

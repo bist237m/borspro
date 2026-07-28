@@ -10,6 +10,25 @@ import { FILTER_LABELS, FILTER_DEFINITIONS } from "../constants/filterDefinition
 const fmt  = (n, d = 2) => n == null ? "—" : Number(n).toLocaleString("tr-TR", { minimumFractionDigits: d, maximumFractionDigits: d });
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString("tr-TR", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
+// ── Kronoloji yardımcıları — sinyal listeleri en yeni girişten eskiye sıralanır ──
+const byEntryDateDesc = (a, b) => new Date(b.entry_date || 0) - new Date(a.entry_date || 0);
+const daysAgo = (d) => {
+  if (!d) return null;
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const day = new Date(date); day.setHours(0, 0, 0, 0);
+  return Math.round((today - day) / 86400000);
+};
+const isNewEntry = (d) => { const n = daysAgo(d); return n != null && n <= 1; };
+const NewBadge = () => (
+  <span style={{
+    fontSize: 9, fontWeight: 700, letterSpacing: "0.05em",
+    padding: "1px 6px", borderRadius: 4, marginLeft: 6, verticalAlign: "middle",
+    background: "var(--accent)", color: "#fff",
+  }}>YENİ</span>
+);
+
 function Spinner() {
   return (
     <div style={{ height: 140, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
@@ -284,9 +303,9 @@ function FilterPerformanceSection() {
                           </tr>
                         </thead>
                         <tbody>
-                          {s.items.map((it, i) => (
+                          {[...s.items].sort(byEntryDateDesc).map((it, i) => (
                             <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
-                              <Td style={{ fontFamily: "var(--font)", fontWeight: 600 }}>{it.symbol}</Td>
+                              <Td style={{ fontFamily: "var(--font)", fontWeight: 600 }}>{it.symbol}{isNewEntry(it.entry_date) && <NewBadge />}</Td>
                               <Td>{fmtDate(it.entry_date)}</Td>
                               <Td style={{ color: Number(it.change_pct) >= 0 ? "var(--green)" : "var(--red)" }}>
                                 {Number(it.change_pct) >= 0 ? "+" : ""}{fmt(it.change_pct)}%
@@ -361,9 +380,9 @@ function ExtraFilterTrackingSection() {
                           </tr>
                         </thead>
                         <tbody>
-                          {g.stocks.map((s, i) => (
+                          {[...g.stocks].sort(byEntryDateDesc).map((s, i) => (
                             <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
-                              <Td style={{ fontFamily: "var(--font)", fontWeight: 600 }}>{s.symbol}</Td>
+                              <Td style={{ fontFamily: "var(--font)", fontWeight: 600 }}>{s.symbol}{isNewEntry(s.entry_date) && <NewBadge />}</Td>
                               <Td>{s.entry_date ? fmtDate(s.entry_date) : "—"}</Td>
                               <Td style={{ color: s.change_pct == null ? "var(--text-3)" : Number(s.change_pct) >= 0 ? "var(--green)" : "var(--red)" }}>
                                 {s.change_pct == null ? "—" : `${Number(s.change_pct) >= 0 ? "+" : ""}${fmt(s.change_pct)}%`}
