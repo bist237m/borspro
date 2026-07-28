@@ -35,7 +35,12 @@ router.get("/:symbol", authenticate, async (req, res, next) => {
   try {
     const { rows } = await query(
       `SELECT s.*, q.price, q.change_abs, q.change_pct,
-              q.bid, q.ask, q.day_high, q.day_low, q.volume, q.quoted_at
+              q.bid, q.ask, q.day_high, q.day_low, q.volume, q.quoted_at,
+              COALESCE(
+                (SELECT array_agg(si.index_code ORDER BY si.index_code)
+                 FROM stock_indices si WHERE si.stock_id = s.id),
+                ARRAY[]::text[]
+              ) AS index_codes
        FROM stocks s
        LEFT JOIN stock_quotes q ON q.stock_id = s.id
        WHERE s.symbol = $1 AND s.is_active = TRUE`,

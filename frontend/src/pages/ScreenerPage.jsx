@@ -24,22 +24,28 @@ const PRESETS = [
   { id:"lowprice",  label:"💰 Düşük Fiyat",   desc:"Fiyat < 50₺",     filters:{ price_max:"50" } },
 ];
 
-const FILTERS = [
-  { group:"Fiyat", items:[
-    { id:"price_min",      label:"Min Fiyat (₺)",   type:"number", placeholder:"0"    },
-    { id:"price_max",      label:"Max Fiyat (₺)",   type:"number", placeholder:"∞"    },
-    { id:"change_pct_min", label:"Min Değişim (%)",  type:"number", placeholder:"-100" },
-    { id:"change_pct_max", label:"Max Değişim (%)",  type:"number", placeholder:"100"  },
-  ]},
-  { group:"Hacim", items:[
-    { id:"volume_min", label:"Min Hacim", type:"number", placeholder:"0" },
-    { id:"volume_max", label:"Max Hacim", type:"number", placeholder:"∞" },
-  ]},
-  { group:"Borsa & Sektör", items:[
-    { id:"exchange", label:"Borsa",  type:"select", options:["","BIST","NASDAQ","NYSE"] },
-    { id:"sector",   label:"Sektör", type:"select", options:["","Finans","Sanayi","Enerji","Savunma","Perakende","Telekom","Otomotiv","Metal","Cam","Holding","Ulaşım"] },
-  ]},
-];
+// NOT: "sector" seçenekleri artık sabit/tahmini bir liste değil — gerçek
+// verideki (allStocks) benzersiz sektör değerlerinden dinamik kuruluyor.
+// Eskiden buradaki ["Finans","Sanayi","Otomotiv",...] listesi KAP/İş Yatırım'ın
+// gerçekte döndürdüğü değerlerle (İMALAT, MALİ KURULUŞLAR vb.) hiç uyuşmuyordu.
+function buildFilters(sectorOptions) {
+  return [
+    { group:"Fiyat", items:[
+      { id:"price_min",      label:"Min Fiyat (₺)",   type:"number", placeholder:"0"    },
+      { id:"price_max",      label:"Max Fiyat (₺)",   type:"number", placeholder:"∞"    },
+      { id:"change_pct_min", label:"Min Değişim (%)",  type:"number", placeholder:"-100" },
+      { id:"change_pct_max", label:"Max Değişim (%)",  type:"number", placeholder:"100"  },
+    ]},
+    { group:"Hacim", items:[
+      { id:"volume_min", label:"Min Hacim", type:"number", placeholder:"0" },
+      { id:"volume_max", label:"Max Hacim", type:"number", placeholder:"∞" },
+    ]},
+    { group:"Borsa & Sektör", items:[
+      { id:"exchange", label:"Borsa",  type:"select", options:["","BIST","NASDAQ","NYSE"] },
+      { id:"sector",   label:"Sektör", type:"select", options:["", ...sectorOptions] },
+    ]},
+  ];
+}
 
 const COLS = [
   { id:"symbol",     label:"Hisse",      sortable:true  },
@@ -53,6 +59,46 @@ const COLS = [
   { id:"volume",     label:"Hacim",      sortable:true  },
   { id:"market_cap", label:"Piy. Değ.",  sortable:true  },
 ];
+
+// ── BİLANÇO SATIRLARI ────────────────────────────────────────
+// ai.js'teki formatBalanceSheet ile aynı mantık: kalem adlarını tahmin
+// etmiyoruz, ham JSON'daki "TOPLAM"/"ÖZKAYNAK" geçen üst-kalemleri öne
+// çıkarıp (ilk 12 tanesi) önceki döneme göre değişimiyle listeliyoruz.
+function BalanceSheetRows({ bs }) {
+  const { data, prev_data } = bs;
+  const priorityKeys = Object.keys(data).filter(k => /toplam|özkaynak/i.test(k));
+  const otherKeys = Object.keys(data).filter(k => !priorityKeys.includes(k));
+  const orderedKeys = [...priorityKeys, ...otherKeys].slice(0, 12);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {orderedKeys.map(k => {
+        const cur = data[k];
+        const prev = prev_data ? prev_data[k] : null;
+        const changePct = (prev != null && cur != null && prev !== 0) ? ((cur - prev) / Math.abs(prev)) * 100 : null;
+        return (
+          <div key={k} style={{
+            display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10,
+            padding: "7px 12px", borderRadius: 8, background: "var(--bg)", border: "1px solid var(--border)",
+          }}>
+            <span style={{ fontSize: 12, color: "var(--text-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k}</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+              <span style={{ fontFamily: "var(--font-m)", fontSize: 12, fontWeight: 600 }}>
+                {cur != null ? `₺${Number(cur).toLocaleString("tr-TR")}` : "—"}
+              </span>
+              {changePct != null && (
+                <span style={{
+                  fontFamily: "var(--font-m)", fontSize: 10, fontWeight: 700,
+                  color: changePct >= 0 ? "var(--green)" : "var(--red)",
+                }}>{changePct >= 0 ? "+" : ""}{changePct.toFixed(1)}%</span>
+              )}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function Spinner() {
   return (
@@ -131,6 +177,25 @@ function StockDetailModal({ symbol, onClose }) {
             </div>
           )}
 
+          {/* Sektör ve Endeks Rozetleri */}
+          {(detail?.sector || detail?.index_codes?.length > 0) && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {detail?.sector && (
+                <span style={{
+                  fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 20,
+                  background: "var(--accent-bg)", color: "var(--accent)",
+                }}>{detail.sector}</span>
+              )}
+              {detail?.index_codes?.map(code => (
+                <span key={code} style={{
+                  fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 20,
+                  background: "var(--bg)", color: "var(--text-2)", border: "1px solid var(--border)",
+                  fontFamily: "var(--font-m)",
+                }}>{code}</span>
+              ))}
+            </div>
+          )}
+
           {/* Filtre durumu */}
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
@@ -205,13 +270,22 @@ function StockDetailModal({ symbol, onClose }) {
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 {[
-                  { label: "FAVÖK",         val: fundData.favok      != null ? `₺${fmtB(fundData.favok)}` : "—" },
-                  { label: "Net Kar",       val: fundData.net_kar    != null ? `₺${fmtB(fundData.net_kar)}` : "—" },
-                  { label: "F/K",           val: fmt(fundData.pe_ratio, 2) },
-                  { label: "PD/DD",         val: fmt(fundData.pb_ratio, 2) },
-                  { label: "Piyasa Değeri", val: fundData.market_cap != null ? `₺${fmtB(fundData.market_cap)}` : "—" },
-                  { label: "52H Yüksek",    val: fundData.year_high  != null ? `₺${fmt(fundData.year_high)}` : "—" },
-                  { label: "52H Düşük",     val: fundData.year_low   != null ? `₺${fmt(fundData.year_low)}` : "—" },
+                  { label: "FAVÖK",           val: fundData.favok      != null ? `₺${fmtB(fundData.favok)}` : "—" },
+                  { label: "Net Kar",         val: fundData.net_kar    != null ? `₺${fmtB(fundData.net_kar)}` : "—" },
+                  { label: "F/K",             val: fmt(fundData.pe_ratio, 2) },
+                  { label: "PD/DD",           val: fmt(fundData.pb_ratio, 2) },
+                  { label: "FD/FAVÖK",        val: fmt(fundData.ev_ebitda, 2) },
+                  { label: "PEG Rasyosu",     val: (fundData.pe_ratio != null && fundData.net_income_yoy_growth > 0)
+                      ? (fundData.pe_ratio / fundData.net_income_yoy_growth).toFixed(2) : "—" },
+                  { label: "Piyasa Değeri",   val: fundData.market_cap != null ? `₺${fmtB(fundData.market_cap)}` : "—" },
+                  { label: "52H Yüksek",      val: fundData.year_high  != null ? `₺${fmt(fundData.year_high)}` : "—" },
+                  { label: "52H Düşük",       val: fundData.year_low   != null ? `₺${fmt(fundData.year_low)}` : "—" },
+                  { label: "ROE",             val: fundData.roe            != null ? `%${fmt(fundData.roe, 1)}` : "—" },
+                  { label: "Net Kar Marjı",   val: fundData.net_margin     != null ? `%${fmt(fundData.net_margin, 1)}` : "—" },
+                  { label: "FAVÖK Marjı",     val: fundData.ebitda_margin  != null ? `%${fmt(fundData.ebitda_margin, 1)}` : "—" },
+                  { label: "Ciro Büyümesi",   val: fundData.revenue_yoy_growth != null ? `%${fmt(fundData.revenue_yoy_growth, 1)}` : "—" },
+                  { label: "Halka Açıklık",   val: fundData.free_float     != null ? `%${fmt(fundData.free_float, 1)}` : "—" },
+                  { label: "Yabancı Oranı",   val: fundData.foreign_ratio  != null ? `%${fmt(fundData.foreign_ratio, 1)}` : "—" },
                 ].map((row, i) => (
                   <div key={i} style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px" }}>
                     <div style={{ fontSize: 10, color: "var(--text-3)", marginBottom: 2 }}>{row.label}</div>
@@ -221,6 +295,23 @@ function StockDetailModal({ symbol, onClose }) {
               </div>
             )}
           </div>
+
+          {/* Bilanço (dönemsel) */}
+          {fundData?.balance_sheet_json?.data && Object.keys(fundData.balance_sheet_json.data).length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                Bilanço
+                <span style={{
+                  fontSize: 9, fontWeight: 600, padding: "2px 8px", borderRadius: 10,
+                  background: "var(--bg)", color: "var(--text-3)", border: "1px solid var(--border)",
+                  textTransform: "none", letterSpacing: 0,
+                }}>
+                  {fundData.financial_group === "UFRS" ? "Bankacılık formatı" : "Sanayi formatı"} · {fundData.balance_sheet_period}
+                </span>
+              </div>
+              <BalanceSheetRows bs={fundData.balance_sheet_json} />
+            </div>
+          )}
 
           {/* KAP Haberleri */}
           <div>
@@ -465,6 +556,12 @@ export default function ScreenerPage() {
 
   const { data: allStocks, loading } = useApi(() => stocksApi.list(), []);
   const { data: trackedList, loading: trackedLoading, refetch: refetchTracked } = useApi(() => signalsApi.tracked(), []);
+
+  const sectorOptions = useMemo(() => {
+    if (!allStocks) return [];
+    return [...new Set(allStocks.map(s => s.sector).filter(Boolean))].sort((a, b) => a.localeCompare(b, "tr"));
+  }, [allStocks]);
+  const FILTERS = useMemo(() => buildFilters(sectorOptions), [sectorOptions]);
 
   const results = useMemo(() => {
     if (!allStocks) return [];
