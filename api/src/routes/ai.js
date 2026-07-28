@@ -104,6 +104,24 @@ router.post("/stocks/:symbol/comment", authenticate, async (req, res, next) => {
       [stock.id]
     );
 
+    // YENİ: Sermaye Artırımı / Temettü Takvimi
+    // DİKKAT: Tablo adını stocks.js'teki corporateActions endpoint'iyle aynı yap.
+    const { rows: corpRows } = await query(
+      `SELECT event_date, bedelli_oran, bedelsiz_ic_oran, bedelsiz_tm_oran, nakit_tm_oran, ruchan_oran
+       FROM corporate_actions
+       WHERE stock_id = $1
+       ORDER BY event_date DESC
+       LIMIT 5`,
+      [stock.id]
+    );
+
+    // YENİ: Ek filtre sonuçları (IFT5-EMA-MACD, EMA120)
+    // DİKKAT: Tablo adını stocks.js'teki extraFilters endpoint'iyle aynı yap.
+    const { rows: extraFilterRows } = await query(
+      "SELECT filter_code, timeframe, result FROM extra_filters WHERE stock_id = $1",
+      [stock.id]
+    );
+
     // Sektörel Ortalamaları Dinamik Hesaplama
     // Sektördeki aşırı uçları (outliers) törpülemek için basit filtreler (PE < 150 vb.) kullanıyoruz.
     let sectorData = null;
@@ -147,6 +165,25 @@ router.post("/stocks/:symbol/comment", authenticate, async (req, res, next) => {
       ? (f.pe_ratio / f.net_income_yoy_growth) : null;
     const balanceSheet = formatBalanceSheet(f);
 
+    // Sermaye artırımı/temettü satırlarını prompt için metne çevir
+    const corpActionsText = corpRows.map(ca => {
+      const parts = [];
+      if (Number(ca.bedelli_oran) > 0)     parts.push(`Bedelli sermaye artırımı %${fmt(ca.bedelli_oran)}`);
+      if (Number(ca.bedelsiz_ic_oran) > 0) parts.push(`Bedelsiz (iç kaynak) %${fmt(ca.bedelsiz_ic_oran)}`);
+      if (Number(ca.bedelsiz_tm_oran) > 0) parts.push(`Bedelsiz (temettü) %${fmt(ca.bedelsiz_tm_oran)}`);
+      if (Number(ca.nakit_tm_oran) > 0)    parts.push(`Nakit temettü %${fmt(ca.nakit_tm_oran)}`);
+      if (Number(ca.ruchan_oran) > 0)      parts.push(`Rüçhan hakkı %${fmt(ca.ruchan_oran)}`);
+      const d = ca.event_date ? new Date(ca.event_date).toLocaleDateString("tr-TR") : "tarih yok";
+      const isFuture = ca.event_date && new Date(ca.event_date) > new Date();
+      return `- ${d}${isFuture ? " (YAKLAŞAN)" : " (geçmiş)"}: ${parts.length ? parts.join(", ") : "detay yok"}`;
+    }).join("\n");
+
+    // Ek filtre sonuçlarını prompt için metne çevir
+    const extraFiltersText = extraFilterRows.map(ef => {
+      const label = ef.filter_code === "IFT5_EMA_MACD" ? "IFT5-EMA-MACD" : ef.filter_code;
+      return `- ${label} (${ef.timeframe}): ${ef.result ? "POZİTİF ✓" : "negatif"}`;
+    }).join("\n");
+
     const prompt = `
 Sen Borsa İstanbul (BIST) dinamiklerine tam hakim, deneyimli bir kıdemli portföy yöneticisi ve analistsin. Aşağıda temel, sektörel, temettü, teknik ve haber (KAP) verilerini paylaştığım ${stock.symbol} (${stock.name}) hissesi için profesyonel, veri odaklı ve objektif bir analiz yapmanı istiyorum.
 
@@ -178,6 +215,9 @@ ${sectorData ? `
 - Yabancı Takası Değişimi: Son 1 haftada %${fmt(f.foreign_ratio_1w_change, 2)}, son 1 ayda %${fmt(f.foreign_ratio_1m_change, 2)}
 - Hisse Getirisi: Günlük %${fmt(f.return_1d)}, Haftalık %${fmt(f.return_1w)}, Aylık %${fmt(f.return_1m)}
 
+SERMAYE ARTIRIMI / TEMETTÜ TAKVİMİ (KAP kayıtları):
+${corpActionsText || "- Kayıtlı sermaye artırımı/temettü olayı yok."}
+
 4. TEKNİK ANALİZ VERİLERİ:
 - Güncel Fiyat: ${stock.price ?? "?"} TL (${stock.change_pct ?? "?"}%)
 - Destek / Direnç: Yakın destek ~${fmt(f.pivot_s1)}, yakın direnç ~${fmt(f.pivot_r1)}
@@ -193,6 +233,9 @@ ${activeFilterCodes.length ? activeFilterCodes.map(c => {
   return `- ${c}: ${FILTER_DEFINITIONS[c]} | Geçmişte ${s.total} örnek, ortalama getiri %${s.avg_change_pct ?? "?"}, kazanma oranı %${winRate}, %10 kazanca ortalama ${s.avg_days_to_10 ?? "?"} günde ulaşılmış.`;
 }).join("\n") : "- Şu an hiçbir özel filtre tetiklenmiyor."}
 
+EK TEKNİK FİLTRELER (destekleyici göstergeler):
+${extraFiltersText || "- Ek filtre verisi yok."}
+
 5. KAP HABERLERİ VE BİLANÇO:
 ${newsRows.length ? newsRows.map(n => `- ${n.title}`).join("\n") : "- Güncel haber bulunamadı."}
 ${balanceSheet ? `\nBİLANÇO YAPISI (${balanceSheet.financialGroup} formatı, Dönem: ${balanceSheet.period}${balanceSheet.prevPeriod ? `, karşılaştırma dönemi: ${balanceSheet.prevPeriod}` : ""}):\n${balanceSheet.text}` : ""}
@@ -200,8 +243,8 @@ ${balanceSheet ? `\nBİLANÇO YAPISI (${balanceSheet.financialGroup} formatı, D
 SENDEN İSTEDİKLERİM (Aşağıdaki JSON şemasına kesinlikle sadık kal):
 1. "genel_degerlendirme": Verilerin birleştirilmiş 1-2 cümlelik özeti.
 2. "temel_ve_sektorel": Sektör ortalamaları ve kendi tarihsel ortalamalarına göre şirketin ucuz/pahalı olup olmadığını, kârlılığını yorumla.
-3. "temettu_ve_takas": Temettü verimini ve BIST için önemli olan "Yabancı Takas Oranı"ndaki son değişimi (para girişi/çıkışı) yorumla.
-4. "teknik_temel_uyumu": Fiyat momentumu, hacim, yabancı ilgisi ve teknik filtrelerin temel tabloyu destekleyip desteklemediğini açıkla.
+3. "temettu_ve_takas": Temettü verimini, sermaye artırımı/temettü takvimini (YAKLAŞAN bedelli varsa sulanma riskini, yaklaşan bedelsiz/nakit temettü varsa olası pozitif etkiyi mutlaka belirt) ve BIST için önemli olan "Yabancı Takas Oranı"ndaki son değişimi (para girişi/çıkışı) yorumla.
+4. "teknik_temel_uyumu": Fiyat momentumu, hacim, yabancı ilgisi ile ana ve ek teknik filtrelerin (IFT5-EMA-MACD, EMA120 dahil) temel tabloyu destekleyip desteklemediğini açıkla.
 5. "kap_ve_bilanco": Haberlerin ve bilanço dönem aktivitesinin kısa vade beklentilere etkisini belirt.
 6. "riskler" ve "firsatlar": En az ikişer madde yaz.
 7. "tavsiye" ve "risk_seviyesi" alanlarını rasyonel şekilde doldur.
