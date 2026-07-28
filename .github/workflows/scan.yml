@@ -29,6 +29,9 @@ on:
     # Her ayın 2'si 05:00 TRT — sektör ve endeks üyeliği (nadiren değişir)
     - cron: '0 5 2 * *'
       timezone: 'Europe/Istanbul'
+    # Her Pazar 06:00 TRT — sermaye artırımı/temettü takvimi (piyasa kapalıyken, yaklaşan olayları yakalamak için haftalık)
+    - cron: '0 6 * * 0'
+      timezone: 'Europe/Istanbul'
   workflow_dispatch:
     inputs:
       action:
@@ -47,6 +50,7 @@ on:
           - kriterleri    # İş Yatırım screener kriter listesini txt'e kaydet
           - balance_sheet # bilanço verisi (dönemsel, JSON)
           - sector_index  # sektör ve endeks üyeliği
+          - corporate_actions # sermaye artırımı / temettü takvimi
 
 # Aynı anda birden fazla çalışma DB'ye eşzamanlı yazmasın diye kuyruğa alınır
 # (iptal etmez, sadece sıraya sokar — cancel-in-progress: false)
@@ -86,6 +90,7 @@ jobs:
               '0 4 * * 1')          ACTION="kriterleri" ;;
               '0 5 1 * *')          ACTION="balance_sheet" ;;
               '0 5 2 * *')          ACTION="sector_index" ;;
+              '0 6 * * 0')          ACTION="corporate_actions" ;;
               *)                    ACTION="full" ;;
             esac
           else
@@ -114,4 +119,6 @@ jobs:
             python main.py --balance-sheet
           elif [ "$ACTION" = "sector_index" ]; then
             python main.py --sector-index
+          elif [ "$ACTION" = "corporate_actions" ]; then
+            python main.py --corporate-actions
           fi

@@ -119,6 +119,7 @@ function StockDetailModal({ symbol, onClose }) {
   const { data: fundData, loading: fundLoading } = useApi(() => stocksApi.fundamentals(symbol), [symbol]);
   const { data: newsData, loading: newsLoading } = useApi(() => stocksApi.news(symbol), [symbol]);
   const { data: extraFilters, loading: extraLoading } = useApi(() => stocksApi.extraFilters(symbol), [symbol]);
+  const { data: corpActions, loading: corpLoading } = useApi(() => stocksApi.corporateActions(symbol), [symbol]);
 
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult,  setAiResult]  = useState(null);
@@ -275,6 +276,7 @@ function StockDetailModal({ symbol, onClose }) {
                   { label: "F/K",             val: fmt(fundData.pe_ratio, 2) },
                   { label: "PD/DD",           val: fmt(fundData.pb_ratio, 2) },
                   { label: "FD/FAVÖK",        val: fmt(fundData.ev_ebitda, 2) },
+                  { label: "FD/Satış",        val: fmt(fundData.ev_sales, 2) },
                   { label: "PEG Rasyosu",     val: (fundData.pe_ratio != null && fundData.net_income_yoy_growth > 0)
                       ? (fundData.pe_ratio / fundData.net_income_yoy_growth).toFixed(2) : "—" },
                   { label: "Piyasa Değeri",   val: fundData.market_cap != null ? `₺${fmtB(fundData.market_cap)}` : "—" },
@@ -286,6 +288,14 @@ function StockDetailModal({ symbol, onClose }) {
                   { label: "Ciro Büyümesi",   val: fundData.revenue_yoy_growth != null ? `%${fmt(fundData.revenue_yoy_growth, 1)}` : "—" },
                   { label: "Halka Açıklık",   val: fundData.free_float     != null ? `%${fmt(fundData.free_float, 1)}` : "—" },
                   { label: "Yabancı Oranı",   val: fundData.foreign_ratio  != null ? `%${fmt(fundData.foreign_ratio, 1)}` : "—" },
+                  { label: "Yab. Oranı (1 Hafta Δ)", val: fundData.foreign_ratio_1w_change != null ? `${fmt(fundData.foreign_ratio_1w_change, 2)} baz` : "—" },
+                  { label: "Yab. Oranı (1 Ay Δ)",    val: fundData.foreign_ratio_1m_change != null ? `${fmt(fundData.foreign_ratio_1m_change, 2)} baz` : "—" },
+                  { label: "Günlük Getiri",   val: fundData.return_1d != null ? `%${fmt(fundData.return_1d, 2)}` : "—" },
+                  { label: "Haftalık Getiri", val: fundData.return_1w != null ? `%${fmt(fundData.return_1w, 2)}` : "—" },
+                  { label: "Aylık Getiri",    val: fundData.return_1m != null ? `%${fmt(fundData.return_1m, 2)}` : "—" },
+                  { label: "Temettü Verimi",  val: fundData.dividend_yield != null ? `%${fmt(fundData.dividend_yield, 2)}` : "—" },
+                  { label: "Tarihsel Ort. F/K",      val: fmt(fundData.pe_hist_avg, 2) },
+                  { label: "Tarihsel Ort. FD/FAVÖK", val: fmt(fundData.ev_ebitda_hist_avg, 2) },
                 ].map((row, i) => (
                   <div key={i} style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px" }}>
                     <div style={{ fontSize: 10, color: "var(--text-3)", marginBottom: 2 }}>{row.label}</div>
@@ -312,6 +322,48 @@ function StockDetailModal({ symbol, onClose }) {
               <BalanceSheetRows bs={fundData.balance_sheet_json} />
             </div>
           )}
+
+          {/* Sermaye Artırımı / Temettü Takvimi */}
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
+              Sermaye Artırımı / Temettü Takvimi
+            </div>
+            {corpLoading ? <Spinner /> : !corpActions?.length ? (
+              <div style={{ fontSize: 13, color: "var(--text-3)" }}>Yaklaşan bir sermaye artırımı/temettü kaydı yok.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {corpActions.map((ca, i) => {
+                  const items = [
+                    ca.bedelli_oran > 0 && { label: "Bedelli", val: `%${fmt(ca.bedelli_oran, 2)}` },
+                    ca.bedelsiz_ic_oran > 0 && { label: "Bedelsiz (İç Kaynak)", val: `%${fmt(ca.bedelsiz_ic_oran, 2)}` },
+                    ca.bedelsiz_tm_oran > 0 && { label: "Bedelsiz (Temettü)", val: `%${fmt(ca.bedelsiz_tm_oran, 2)}` },
+                    ca.nakit_tm_oran > 0 && { label: "Nakit Temettü", val: `%${fmt(ca.nakit_tm_oran, 2)}` },
+                    ca.ruchan_oran > 0 && { label: "Rüçhan Hakkı", val: `%${fmt(ca.ruchan_oran, 2)}` },
+                  ].filter(Boolean);
+                  return (
+                    <div key={i} style={{
+                      display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap",
+                      padding: "8px 12px", borderRadius: 8, background: "var(--bg)", border: "1px solid var(--border)",
+                    }}>
+                      <span style={{ fontFamily: "var(--font-m)", fontSize: 12, fontWeight: 600, color: "var(--text-2)" }}>
+                        {fmtDate(ca.event_date)}
+                      </span>
+                      <span style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {items.length ? items.map((it, j) => (
+                          <span key={j} style={{
+                            fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20,
+                            background: "var(--accent-bg)", color: "var(--accent)",
+                          }}>{it.label}: {it.val}</span>
+                        )) : (
+                          <span style={{ fontSize: 11, color: "var(--text-3)" }}>Detay yok</span>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           {/* KAP Haberleri */}
           <div>

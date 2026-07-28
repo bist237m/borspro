@@ -4,17 +4,20 @@
 # ÖNEMLİ: Hisse başına istek YAPMIYORUZ (mümkün olduğunda). borsapy'nin İş
 # Yatırım screener'ı sektör bazında, Index sağlayıcısı da endeks bazında
 # TOPLU liste veriyor:
-#   - bp.sectors() -> tüm sektör adları (örn. ~20-30 tane)
-#   - Screener().set_sector(ad).run() -> o sektördeki TÜM hisseler (tek istek)
+#   - Screener().set_sector(ID).run() -> o sektördeki TÜM hisseler (tek istek)
 #   - bp.Index(kod).components -> o endeksteki TÜM hisseler (tek istek)
 #
-# BİLİNEN KIRILGANLIK: bp.sectors(), İş Yatırım'ın sayfasından sabit bir
-# ASP.NET dropdown ID'sini scrape ediyor. Bu ID sayfa her güncellendiğinde
-# değişebiliyor ve borsapy bu durumda HATA FIRLATMIYOR, sessizce boş liste
-# döndürüyor. Bu yüzden bulk yöntem boş dönerse, hisse başına (yavaş ama
-# çalışan) KAP tabanlı Ticker(symbol).info["sector"] yöntemine otomatik
-# düşüyoruz (aynı KAP altyapısı bilanço verisinde de kullanılıyor, çalıştığı
-# doğrulandı).
+# BİLİNEN KIRILGANLIK (ÇÖZÜLDÜ): bp.sectors() ve set_sector(isim), İş
+# Yatırım'ın sayfasından sabit bir ASP.NET dropdown ID'sini scrape ederek
+# isim->ID çevirisi yapıyor (borsapy/screener.py: set_sector içinde
+# self._provider.get_sectors() çağrısı). Bu scraping kırılmış durumda,
+# sessizce boş liste dönüyor — set_sector(isim) de bu yüzden başarısız
+# oluyordu. ÇÖZÜM: set_sector() zaten ID ile de çağrılabiliyor
+# (id.startswith("0") ise isim->ID çevirisini hiç yapmadan direkt kullanıyor).
+# Gerçek ID'leri gelismis-hisse-arama.aspx sayfasının select2 dropdown
+# HTML'inden (option id'lerinin sonundaki 4 haneli kod) elle çıkardık —
+# böylece kırık bp.sectors()'a hiç ihtiyaç duymadan sektör bazlı toplu
+# tarama yapabiliyoruz.
 
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -32,12 +35,70 @@ INDEX_CODES = {
     "XUTEK": "BIST TEKNOLOJİ",
 }
 
+# gelismis-hisse-arama.aspx sayfasının "Sektör" dropdown'undan (select2 HTML,
+# option id'lerinin sonundaki 4 haneli kod) elle çıkarılan gerçek ID eşlemesi.
+SECTOR_ID_MAP = {
+    "0001": "Bankacılık",
+    "0002": "Bilgisayar Toptancılığı",
+    "0003": "Boya",
+    "0004": "Cam",
+    "0005": "Çimento",
+    "0006": "Dayanıklı Tüketim",
+    "0007": "Demir-Çelik Döküm",
+    "0008": "Demir-Çelik Temel",
+    "0009": "Deri Giyim",
+    "0010": "Eğlence Hizmetleri",
+    "0011": "Elektrik Üretim",
+    "0012": "Elektrik Enerji Ürt.Teçh/Tesis Kurulum",
+    "0013": "Endüstriyel Tekstil",
+    "0014": "Fin.Kiralama ve Faktoring",
+    "0015": "GYO",
+    "0016": "Gıda",
+    "0017": "Havayolları ve Hizm.",
+    "0018": "Hayvancılık",
+    "0019": "Holdingler",
+    "0020": "İletişim Cihazları",
+    "0021": "İnşaat Malzemeleri",
+    "0022": "İnşaat- Taahhüt",
+    "0023": "Kablo",
+    "0024": "Kağıt Ürünleri",
+    "0025": "Kimyasal Ürün",
+    "0026": "Kırtasiye",
+    "0028": "Medya",
+    "0029": "Meşrubat / İçecek",
+    "0030": "Mobilya",
+    "0031": "Otomotiv",
+    "0032": "Otomotiv Lastiği",
+    "0033": "Otomotiv Parçası",
+    "0034": "Pazarlama",
+    "0035": "Perakande - Ticaret",
+    "0036": "Petrol",
+    "0037": "Sağlık ve İlaç",
+    "0038": "Elektrik - Doğalgaz Dağıtım",
+    "0039": "Seramik",
+    "0040": "Sigorta",
+    "0041": "Spor",
+    "0042": "Tarım Kimyasalları",
+    "0043": "Teknoloji",
+    "0045": "Tekstil Entegre",
+    "0046": "Turizm",
+    "0047": "Yatırım Ortaklıkları",
+    "0048": "Ulaştırma-Lojistik",
+    "0049": "Diğer",
+    "0050": "İletişim",
+    "0051": "Aracı Kurumlar",
+    "0052": "Madencilik",
+    "0053": "Savunma",
+    "0054": "Endüstriyel Makine -Teçhizat Üretim",
+    "0055": "Varlık Yönetim",
+}
+
 MAX_WORKERS = 10  # KAP muhtemelen hız sınırı uyguluyor — 15 çok agresif olabilir, düşürüldü
 RETRY_DELAY_SECONDS = 2
 
 
 def _fetch_sector_per_stock(symbol: str):
-    """Yedek plan: KAP üzerinden hisse başına sektör bilgisi.
+    """Son çare yedek plan: KAP üzerinden hisse başına sektör bilgisi.
     (sector, error) tuple döner — error None ise başarılı demektir.
     Geçici hatalarda (ağ/timeout) bir kere daha dener."""
     import time
@@ -55,45 +116,37 @@ def _fetch_sector_per_stock(symbol: str):
 
 def run_sync_sectors():
     """stocks.sector kolonunu doldurur.
-    Önce hızlı toplu yöntemi dener (bp.sectors() + set_sector tarama);
-    o boş/başarısız dönerse hisse başına KAP fallback'ine geçer."""
-    try:
-        sector_names = bp.sectors()
-    except Exception as err:
-        print(f"⚠️  Toplu sektör listesi alınamadı ({err}), KAP fallback'ine geçiliyor...")
-        sector_names = []
-
-    if sector_names:
-        print(f"🏷️  {len(sector_names)} sektör bulundu (toplu yöntem), taranıyor...")
-        result = _sync_sectors_bulk(sector_names)
-        if result["updated"] > 0:
-            return result
-        print("⚠️  Toplu yöntem 0 hisse güncelledi, KAP fallback'ine geçiliyor...")
-    else:
-        print("⚠️  Toplu sektör listesi boş döndü (İş Yatırım sayfa yapısı değişmiş olabilir), KAP fallback'ine geçiliyor...")
-
+    1) Önce SECTOR_ID_MAP'teki gerçek ID'lerle toplu tarama (hızlı, güvenilir —
+       kırık bp.sectors() isim çevirisine hiç ihtiyaç duymuyor).
+    2) O da 0 sonuç verirse (örn. API başka bir sebeple değişmişse), hisse
+       başına KAP fallback'ine düşer."""
+    result = _sync_sectors_bulk_by_id()
+    if result["updated"] > 0:
+        return result
+    print("⚠️  ID tabanlı toplu yöntem de 0 hisse güncelledi, KAP fallback'ine geçiliyor...")
     return _sync_sectors_per_stock()
 
 
-def _sync_sectors_bulk(sector_names):
+def _sync_sectors_bulk_by_id():
+    print(f"🏷️  {len(SECTOR_ID_MAP)} sektör ID'si ile toplu tarama başlıyor (bp.sectors() atlanıyor)...")
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT id, symbol FROM stocks WHERE is_active = TRUE")
             symbol_to_id = {symbol: stock_id for stock_id, symbol in cur.fetchall()}
 
             updated = 0
-            for sector_name in sector_names:
+            for sector_id, sector_name in SECTOR_ID_MAP.items():
                 try:
-                    df = bp.Screener().set_sector(sector_name).run()
+                    df = bp.Screener().set_sector(sector_id).run()
                 except Exception as err:
-                    print(f"   ❌ {sector_name}: {err}")
+                    print(f"   ❌ {sector_name} ({sector_id}): {err}")
                     continue
 
                 if df is None or df.empty or "symbol" not in df.columns:
                     continue
 
                 symbols = df["symbol"].tolist()
-                print(f"   📁 {sector_name}: {len(symbols)} hisse")
+                print(f"   📁 {sector_name} ({sector_id}): {len(symbols)} hisse")
 
                 for symbol in symbols:
                     stock_id = symbol_to_id.get(symbol)
@@ -110,7 +163,7 @@ def _sync_sectors_bulk(sector_names):
 
         conn.commit()
 
-    print(f"✅ Sektör senkronizasyonu (toplu) tamamlandı: {updated} hisse güncellendi")
+    print(f"✅ Sektör senkronizasyonu (ID tabanlı toplu) tamamlandı: {updated} hisse güncellendi")
     return {"updated": updated}
 
 

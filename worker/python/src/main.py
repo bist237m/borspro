@@ -11,6 +11,7 @@
 #   python main.py --kriterleri      → İş Yatırım screener kriter listesini txt'e kaydet
 #   python main.py --balance-sheet   → Bilanço verilerini çek (dönemsel, JSON olarak saklanır)
 #   python main.py --sector-index    → Sektör ve endeks (BIST30/50/100 vb.) üyeliğini güncelle
+#   python main.py --corporate-actions → Sermaye artırımları / temettü takvimi
 
 import sys
 from sync import run_sync_quotes
@@ -22,13 +23,14 @@ from news import run_fetch_news
 from kriterleri_bul import tum_kriterleri_kaydet
 from balance_sheet import run_fetch_balance_sheets
 from sector_index import run_sync_sector_index
+from corporate_actions import run_sync_corporate_actions
 
 print("🚀 Borsa Pro Worker (Python) başladı\n")
 
 args = sys.argv[1:]
 
 if not args:
-    print("⚠️  Hiçbir bayrak verilmedi. Kullanım: --sync | --scan | --history | --extra-scan | --fundamentals | --news | --kriterleri | --balance-sheet | --sector-index")
+    print("⚠️  Hiçbir bayrak verilmedi. Kullanım: --sync | --scan | --history | --extra-scan | --fundamentals | --news | --kriterleri | --balance-sheet | --sector-index | --corporate-actions")
 
 if "--sync" in args:
     run_sync_quotes()
@@ -56,5 +58,8 @@ if "--balance-sheet" in args:
 
 if "--sector-index" in args:
     run_sync_sector_index()
+
+if "--corporate-actions" in args:
+    run_sync_corporate_actions()
 
 print("\n✅ İşlem tamamlandı.")

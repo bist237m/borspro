@@ -144,4 +144,24 @@ router.get("/:symbol/extra-filters", authenticate, async (req, res, next) => {
   }
 });
 
+// GET /api/stocks/:symbol/corporate-actions — yaklaşan sermaye artırımı/temettü takvimi
+router.get("/:symbol/corporate-actions", authenticate, async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT ca.event_date, ca.price_tl, ca.capital_after,
+              ca.bedelli_oran, ca.bedelli_nom_tutar, ca.ruchan_oran,
+              ca.bedelsiz_ic_oran, ca.bedelsiz_tm_oran,
+              ca.nakit_tm_oran, ca.nakit_tm_tutar, ca.fiyat_ayar_oran
+       FROM corporate_actions ca
+       JOIN stocks s ON s.id = ca.stock_id
+       WHERE s.symbol = $1
+       ORDER BY ca.event_date ASC`,
+      [req.params.symbol.toUpperCase()]
+    );
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

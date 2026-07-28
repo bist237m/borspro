@@ -51,6 +51,15 @@ def fetch_isyatirim(symbols: list[str]) -> dict:
         screener.add_filter("ev_ebitda", min=-9999, max=99999)
         screener.add_filter("net_margin", min=-9999, max=99999)
         screener.add_filter("ebitda_margin", min=-9999, max=99999)
+        screener.add_filter("ev_sales", min=-9999, max=99999)
+        screener.add_filter("return_1d", min=-9999, max=99999)
+        screener.add_filter("return_1w", min=-9999, max=99999)
+        screener.add_filter("return_1m", min=-9999, max=99999)
+        screener.add_filter("dividend_yield", min=-9999, max=99999)
+        screener.add_filter("foreign_ratio_1w_change", min=-9999, max=99999)
+        screener.add_filter("foreign_ratio_1m_change", min=-9999, max=99999)
+        screener.add_filter("pe_hist_avg", min=-9999, max=99999)
+        screener.add_filter("ev_ebitda_hist_avg", min=-9999, max=99999)
         df = screener.run()
     except Exception as err:
         print(f"   ⚠️  İş Yatırım Screener hatası, bu alanlar TradingView değerinde kalacak: {err}")
@@ -127,6 +136,15 @@ def save_fundamentals(cur, stock_id, row, iy_row=None):
     ev_ebitda     = None
     net_margin    = None
     ebitda_margin = None
+    ev_sales                = None
+    return_1d               = None
+    return_1w               = None
+    return_1m                = None
+    dividend_yield          = None
+    foreign_ratio_1w_change = None
+    foreign_ratio_1m_change = None
+    pe_hist_avg             = None
+    ev_ebitda_hist_avg      = None
     if iy_row is not None:
         iy_pe  = _safe_float_tr(iy_row.get("criteria_28"))    # F/K
         iy_pb  = _safe_float_tr(iy_row.get("criteria_30"))    # PD/DD
@@ -138,6 +156,15 @@ def save_fundamentals(cur, stock_id, row, iy_row=None):
         ev_ebitda     = _safe_float_tr(iy_row.get("criteria_29"))   # Cari FD/FAVÖK
         net_margin    = _safe_float_tr(iy_row.get("criteria_119"))  # Net Kar Marjı (%)
         ebitda_margin = _safe_float_tr(iy_row.get("criteria_120"))  # FAVÖK Marjı (%)
+        ev_sales                = _safe_float_tr(iy_row.get("criteria_31"))   # Cari FD/Satışlar
+        return_1d               = _safe_float_tr(iy_row.get("criteria_21"))   # 1 Gün Rel. (%)
+        return_1w               = _safe_float_tr(iy_row.get("criteria_22"))   # 1 Hafta Rel. (%)
+        return_1m               = _safe_float_tr(iy_row.get("criteria_23"))   # 1 Ay Rel. (%)
+        dividend_yield          = _safe_float_tr(iy_row.get("criteria_33"))   # 2024 Temettü Verimi (%)
+        foreign_ratio_1w_change = _safe_float_tr(iy_row.get("criteria_44"))   # Yabancı Oranı 1 Haftalık Değişim
+        foreign_ratio_1m_change = _safe_float_tr(iy_row.get("criteria_45"))   # Yabancı Oranı 1 Aylık Değişim
+        pe_hist_avg             = _safe_float_tr(iy_row.get("criteria_126"))  # Tarihsel Ort. F/K
+        ev_ebitda_hist_avg      = _safe_float_tr(iy_row.get("criteria_128"))  # Tarihsel Ort. FD/FAVÖK
 
         if iy_pe  is not None: pe_ratio   = iy_pe
         if iy_pb  is not None: pb_ratio   = iy_pb
@@ -152,8 +179,10 @@ def save_fundamentals(cur, stock_id, row, iy_row=None):
            roe, total_debt, net_income_yoy_growth, revenue_yoy_growth,
            rsi, sma50, volume, avg_volume_10d, pivot_s1, pivot_r1, macd_line, macd_signal_line,
            free_float, foreign_ratio, ev_ebitda, net_margin, ebitda_margin,
+           ev_sales, return_1d, return_1w, return_1m, dividend_yield,
+           foreign_ratio_1w_change, foreign_ratio_1m_change, pe_hist_avg, ev_ebitda_hist_avg,
            updated_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
         ON CONFLICT (stock_id) DO UPDATE SET
           favok                  = EXCLUDED.favok,
           net_kar                = EXCLUDED.net_kar,
@@ -179,12 +208,23 @@ def save_fundamentals(cur, stock_id, row, iy_row=None):
           ev_ebitda              = EXCLUDED.ev_ebitda,
           net_margin             = EXCLUDED.net_margin,
           ebitda_margin          = EXCLUDED.ebitda_margin,
+          ev_sales                 = EXCLUDED.ev_sales,
+          return_1d                = EXCLUDED.return_1d,
+          return_1w                = EXCLUDED.return_1w,
+          return_1m                = EXCLUDED.return_1m,
+          dividend_yield           = EXCLUDED.dividend_yield,
+          foreign_ratio_1w_change  = EXCLUDED.foreign_ratio_1w_change,
+          foreign_ratio_1m_change  = EXCLUDED.foreign_ratio_1m_change,
+          pe_hist_avg              = EXCLUDED.pe_hist_avg,
+          ev_ebitda_hist_avg       = EXCLUDED.ev_ebitda_hist_avg,
           updated_at             = NOW()
         """,
         (stock_id, favok, net_kar, pe_ratio, pb_ratio, market_cap, year_high, year_low,
          roe, total_debt, ni_growth, rev_growth,
          rsi, sma50, volume, avg_vol10, pivot_s1, pivot_r1, macd_line, macd_sig,
-         free_float, foreign_rate, ev_ebitda, net_margin, ebitda_margin),
+         free_float, foreign_rate, ev_ebitda, net_margin, ebitda_margin,
+         ev_sales, return_1d, return_1w, return_1m, dividend_yield,
+         foreign_ratio_1w_change, foreign_ratio_1m_change, pe_hist_avg, ev_ebitda_hist_avg),
     )
 
 
