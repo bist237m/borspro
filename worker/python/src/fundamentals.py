@@ -72,11 +72,26 @@ def fetch_isyatirim(symbols: list[str]) -> dict:
 
 
 def _safe_float_tr(val):
-    """İş Yatırım'ın virgüllü sayı formatını (örn. '1.234,56') float'a çevirir."""
+    """İş Yatırım'dan gelen değeri float'a çevirir.
+
+    ÖNEMLİ: borsapy her criteria değerini önce float(value) ile çevirmeyi
+    dener; başarılı olursa (nokta ondalıklı/tam sayı gibi 'temiz' bir değerse)
+    zaten float olarak veriyor, başarısız olursa (virgüllü Türkçe format gibi)
+    ham string bırakıyor. Yani hangi alanın hangi formatta geleceği DEĞİŞKEN.
+    Bu yüzden her zaman 'virgüllü Türkçe format' varsayıp nokta silmek YANLIŞ —
+    zaten temiz olan bir float'ta noktayı bin ayracı sanıp siler (41.67 -> 4167).
+    Önce tip kontrolü yapıyoruz; sadece gerçekten virgül içeren string'lerde
+    Türkçe format dönüşümü uyguluyoruz."""
     if val is None or val != val or val == "":
         return None
+    if isinstance(val, (int, float)):
+        return float(val)
     try:
-        val_str = str(val).replace(".", "").replace(",", ".")
+        val_str = str(val).strip()
+        if "," in val_str:
+            # Türkçe format: "1.234,56" -> bin ayracı noktaları sil, virgülü ondalık noktaya çevir
+            val_str = val_str.replace(".", "").replace(",", ".")
+        # virgül yoksa zaten standart ondalık formatta (örn. "41.67") — olduğu gibi çevir
         return float(val_str)
     except Exception:
         return None
