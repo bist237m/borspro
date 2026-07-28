@@ -444,8 +444,10 @@ function StockDetailModal({ symbol, onClose }) {
                   </div>
                   {[
                     { label: "Finansal Sağlık", text: aiResult.finansal_saglik },
+                    { label: "Temettü ve Yabancı Takası", text: aiResult.temettu_ve_takas },
                     { label: "Teknik-Temel Uyumu", text: aiResult.teknik_temel_uyumu },
                     { label: "KAP Haberlerinin Etkisi", text: aiResult.kap_etkisi },
+                    { label: "Bilanço Yorumu", text: aiResult.bilanco_yorumu },
                   ].map((s, i) => (
                     <div key={i}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 4 }}>{s.label}</div>
