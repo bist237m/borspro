@@ -9,6 +9,7 @@ import borsapy as bp
 from db import get_connection
 from custom_filters import (
     haftalik_analiz_1, haftalik_analiz_2, haftalik_analiz_3, gunluk_analiz_1,
+    cci100_kesme, iftcci5_kesme,
     compute_snapshot_values,
 )
 
@@ -17,6 +18,10 @@ FILTERS = [
     ("HAFTALIK_2", haftalik_analiz_2, "1wk", "2y"),
     ("HAFTALIK_3", haftalik_analiz_3, "1wk", "2y"),
     ("GUNLUK_1",   gunluk_analiz_1,   "1d",  "1y"),
+    ("CCI100_HAFTALIK",  cci100_kesme,  "1wk", "2y"),
+    ("CCI100_GUNLUK",    cci100_kesme,  "1d",  "1y"),
+    ("IFTCCI5_HAFTALIK", iftcci5_kesme, "1wk", "2y"),
+    ("IFTCCI5_GUNLUK",   iftcci5_kesme, "1d",  "1y"),
 ]
 
 MAX_WORKERS = 10  # aynı anda kaç hisse işlensin
@@ -136,8 +141,11 @@ def save_snapshot(cur, stock_id, weekly_vals, daily_vals, filter_results):
           (stock_id, inv1_9, inv1_13, ema21_weekly, ema21_daily,
            macdas_weekly, macdas_daily, cci20_weekly, cci20_daily,
            price_weekly, price_daily,
-           haftalik_1, haftalik_2, haftalik_3, gunluk_1, updated_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+           iftcci5_weekly_value, iftcci5_daily_value,
+           haftalik_1, haftalik_2, haftalik_3, gunluk_1,
+           cci100_haftalik, cci100_gunluk, iftcci5_haftalik, iftcci5_gunluk,
+           updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
         ON CONFLICT (stock_id) DO UPDATE SET
           inv1_9        = EXCLUDED.inv1_9,
           inv1_13       = EXCLUDED.inv1_13,
@@ -149,10 +157,16 @@ def save_snapshot(cur, stock_id, weekly_vals, daily_vals, filter_results):
           cci20_daily   = EXCLUDED.cci20_daily,
           price_weekly  = EXCLUDED.price_weekly,
           price_daily   = EXCLUDED.price_daily,
+          iftcci5_weekly_value = EXCLUDED.iftcci5_weekly_value,
+          iftcci5_daily_value  = EXCLUDED.iftcci5_daily_value,
           haftalik_1    = EXCLUDED.haftalik_1,
           haftalik_2    = EXCLUDED.haftalik_2,
           haftalik_3    = EXCLUDED.haftalik_3,
           gunluk_1      = EXCLUDED.gunluk_1,
+          cci100_haftalik  = EXCLUDED.cci100_haftalik,
+          cci100_gunluk    = EXCLUDED.cci100_gunluk,
+          iftcci5_haftalik = EXCLUDED.iftcci5_haftalik,
+          iftcci5_gunluk   = EXCLUDED.iftcci5_gunluk,
           updated_at    = NOW()
         """,
         (
@@ -162,10 +176,15 @@ def save_snapshot(cur, stock_id, weekly_vals, daily_vals, filter_results):
             weekly_vals.get("macdas"), daily_vals.get("macdas"),
             weekly_vals.get("cci20"), daily_vals.get("cci20"),
             weekly_vals.get("price"), daily_vals.get("price"),
+            weekly_vals.get("iftcci5"), daily_vals.get("iftcci5"),
             filter_results.get("HAFTALIK_1", False),
             filter_results.get("HAFTALIK_2", False),
             filter_results.get("HAFTALIK_3", False),
             filter_results.get("GUNLUK_1", False),
+            filter_results.get("CCI100_HAFTALIK", False),
+            filter_results.get("CCI100_GUNLUK", False),
+            filter_results.get("IFTCCI5_HAFTALIK", False),
+            filter_results.get("IFTCCI5_GUNLUK", False),
         ),
     )
 

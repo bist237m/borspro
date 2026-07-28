@@ -13,6 +13,10 @@ export const FILTER_LABELS = {
   IFT5_EMA_MACD_1WK: "IFT5-EMA-MACD (Haftalık)",
   EMA120_2H:         "EMA120 (2 Saat)",
   EMA120_30M:        "EMA120 (30 Dakika)",
+  cci100_haftalik:  "CCI100 Haftalık",
+  cci100_gunluk:    "CCI100 Günlük",
+  iftcci5_haftalik: "IFTCCI5 Haftalık",
+  iftcci5_gunluk:   "IFTCCI5 Günlük",
 };
 
 // Tracked tablosundaki filter_types "HAFTALIK_1" gibi büyük harf kodlar
@@ -33,6 +37,10 @@ export const FILTER_DEFINITIONS = {
   IFT5_EMA_MACD_1WK: "IFT(CCI 5) 0.5'i yukarı keser, fiyat EMA21'i keser (bu/önceki mum), MACD sinyalin üzerinde — haftalık grafikte",
   EMA120_2H:         "EMA120≥EMA100, ADX>20, MACDAS>0, SMI kesişimi ve <0, fiyat EMA100'ü keser — 2 saatlik grafikte",
   EMA120_30M:        "EMA120≥EMA100, ADX>20, MACDAS>0, SMI kesişimi ve <0, fiyat EMA100'ü keser — 30 dakikalık grafikte",
+  CCI100_HAFTALIK:  "Haftalık CCI(20) 100 seviyesini yukarı keser",
+  CCI100_GUNLUK:    "Günlük CCI(20) 100 seviyesini yukarı keser",
+  IFTCCI5_HAFTALIK: "Haftalık IFTCCI5 (CCI5 + WMA9 + Inverse Fisher) 0.5'i yukarı keser",
+  IFTCCI5_GUNLUK:   "Günlük IFTCCI5 (CCI5 + WMA9 + Inverse Fisher) 0.5'i yukarı keser",
 };
 
 // "HAFTALIK_1,GUNLUK_1" gibi virgüllü bir string'i okunur satırlara çevirir.

@@ -131,11 +131,35 @@ def gunluk_analiz_1(df: pd.DataFrame) -> bool:
     return bool(c1 and c2 and c3 and c4)
 
 
+# ── YENİ BAĞIMSIZ FİLTRELER (tek koşullu) ──────────────────
+# Aynı fonksiyon hem haftalık hem günlük DataFrame ile çağrılır —
+# zaman dilimi ayrımını scan.py'deki FILTERS listesi yapar.
+
+def cci100_kesme(df: pd.DataFrame) -> bool:
+    """CCI(20, hlc3) 100 seviyesini yukarı keser (önceki bar <= 100, son bar > 100).
+    Mevcut filtrelerdeki (haftalik_2, gunluk_1) c4 koşulunun bağımsız hali."""
+    hlc3 = (df["High"] + df["Low"] + df["Close"]) / 3
+    cci20 = cci_series(hlc3, 20)
+    return bool(crossed_above(cci20, 100, lookback=1))
+
+
+def iftcci5_kesme(df: pd.DataFrame) -> bool:
+    """IFTCCI5 = CCI(5, close bazlı) -> 0.1*(cci/4) ölçekleme -> WMA(9) -> IFT.
+    inv1_series ile birebir aynı iskelet (extra_filters'taki Filtre 5'in c1'i),
+    0.5 seviyesini yukarı keser."""
+    iftcci5 = inv1_series(df, cci_length=5, wma_length=9)
+    return bool(crossed_above(iftcci5, 0.5, lookback=1))
+
+
 FILTERS = {
     "HAFTALIK_1": haftalik_analiz_1,
     "HAFTALIK_2": haftalik_analiz_2,
     "HAFTALIK_3": haftalik_analiz_3,
     "GUNLUK_1":   gunluk_analiz_1,
+    "CCI100_HAFTALIK":  cci100_kesme,
+    "CCI100_GUNLUK":    cci100_kesme,
+    "IFTCCI5_HAFTALIK": iftcci5_kesme,
+    "IFTCCI5_GUNLUK":   iftcci5_kesme,
 }
 
 # Hangi filtreler haftalık, hangileri günlük veri istiyor
@@ -144,6 +168,10 @@ FILTER_TIMEFRAME = {
     "HAFTALIK_2": "1wk",
     "HAFTALIK_3": "1wk",
     "GUNLUK_1":   "1d",
+    "CCI100_HAFTALIK":  "1wk",
+    "CCI100_GUNLUK":    "1d",
+    "IFTCCI5_HAFTALIK": "1wk",
+    "IFTCCI5_GUNLUK":   "1d",
 }
 
 
@@ -160,15 +188,17 @@ def _last(series: pd.Series):
 def compute_snapshot_values(df: pd.DataFrame, cci_length_for_inv1: int) -> dict:
     """Bir DataFrame (haftalık ya da günlük) için son gösterge değerlerini döndürür."""
     inv1 = inv1_series(df, cci_length=cci_length_for_inv1, wma_length=9)
+    iftcci5 = inv1_series(df, cci_length=5, wma_length=9)
     ema21 = ema_series(df["Close"], 21)
     macdas = macdas_series(df["Close"])
     hlc3 = (df["High"] + df["Low"] + df["Close"]) / 3
     cci20 = cci_series(hlc3, 20)
 
     return {
-        "inv1":   _last(inv1),
-        "ema21":  _last(ema21),
-        "macdas": _last(macdas),
-        "cci20":  _last(cci20),
-        "price":  _last(df["Close"]),
+        "inv1":    _last(inv1),
+        "iftcci5": _last(iftcci5),
+        "ema21":   _last(ema21),
+        "macdas":  _last(macdas),
+        "cci20":   _last(cci20),
+        "price":   _last(df["Close"]),
     }

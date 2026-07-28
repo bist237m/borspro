@@ -9,6 +9,10 @@ const FILTER_DEFINITIONS = {
   HAFTALIK_2: "Haftalık INV1(9) 0.5'i yukarı keser, EMA21 fiyatın altında, MACDAS 0'ı yukarı keser, CCI(20) 100'ü yukarı keser",
   HAFTALIK_3: "Haftalık INV1(9) 0.5'i yukarı keser, Fiyat EMA21'i yukarı keser, MACDAS 0'ı yukarı keser, CCI(20) > -100",
   GUNLUK_1:   "Günlük INV1(13) 0.5'i yukarı keser, EMA21 fiyatın altında, MACDAS > 0, CCI(20) 100'ü yukarı keser",
+  CCI100_HAFTALIK:  "Haftalık CCI(20) 100 seviyesini yukarı keser",
+  CCI100_GUNLUK:    "Günlük CCI(20) 100 seviyesini yukarı keser",
+  IFTCCI5_HAFTALIK: "Haftalık IFTCCI5 (CCI5 + WMA9 + Inverse Fisher) 0.5 seviyesini yukarı keser",
+  IFTCCI5_GUNLUK:   "Günlük IFTCCI5 (CCI5 + WMA9 + Inverse Fisher) 0.5 seviyesini yukarı keser",
 };
 
 function fmt(v, d = 2) {
@@ -142,6 +146,10 @@ router.post("/stocks/:symbol/comment", authenticate, async (req, res, next) => {
     if (ind.haftalik_2) activeFilterCodes.push("HAFTALIK_2");
     if (ind.haftalik_3) activeFilterCodes.push("HAFTALIK_3");
     if (ind.gunluk_1)   activeFilterCodes.push("GUNLUK_1");
+    if (ind.cci100_haftalik)  activeFilterCodes.push("CCI100_HAFTALIK");
+    if (ind.cci100_gunluk)    activeFilterCodes.push("CCI100_GUNLUK");
+    if (ind.iftcci5_haftalik) activeFilterCodes.push("IFTCCI5_HAFTALIK");
+    if (ind.iftcci5_gunluk)   activeFilterCodes.push("IFTCCI5_GUNLUK");
 
     const historicalStats = {};
     for (const code of activeFilterCodes) {
@@ -230,7 +238,7 @@ ${corpActionsText || "- Kayıtlı sermaye artırımı/temettü olayı yok."}
 - RSI(14): ${fmt(f.rsi, 1)} | MACD: ${macdSignalRel ?? "veri yok"}
 - 50 Günlük HO: Fiyat ortalamanın ${priceVsSma50 ?? "veri yok"} (HO: ${fmt(f.sma50)})
 - Hacim: Güncel hacim, 10 günlük ortalamanın ${volumeStatus != null ? (volumeStatus >= 0 ? `%${volumeStatus.toFixed(0)} üzerinde` : `%${Math.abs(volumeStatus).toFixed(0)} altında`) : "veri yok"}
-- Sistem Gösterge Anlık Değerleri → Haftalık: INV1(9)=${fmt(ind.inv1_9)}, EMA21=${fmt(ind.ema21_weekly)}, MACDAS=${fmt(ind.macdas_weekly)}, CCI(20)=${fmt(ind.cci20_weekly, 1)} | Günlük: INV1(13)=${fmt(ind.inv1_13)}, EMA21=${fmt(ind.ema21_daily)}, MACDAS=${fmt(ind.macdas_daily)}, CCI(20)=${fmt(ind.cci20_daily, 1)}
+- Sistem Gösterge Anlık Değerleri → Haftalık: INV1(9)=${fmt(ind.inv1_9)}, EMA21=${fmt(ind.ema21_weekly)}, MACDAS=${fmt(ind.macdas_weekly)}, CCI(20)=${fmt(ind.cci20_weekly, 1)}, IFTCCI5=${fmt(ind.iftcci5_weekly_value)} | Günlük: INV1(13)=${fmt(ind.inv1_13)}, EMA21=${fmt(ind.ema21_daily)}, MACDAS=${fmt(ind.macdas_daily)}, CCI(20)=${fmt(ind.cci20_daily, 1)}, IFTCCI5=${fmt(ind.iftcci5_daily_value)}
 
 TETİKLENEN ÖZEL TEKNİK FİLTRELER (kendi tarama sistemimiz, geçmiş performanslarıyla):
 ${activeFilterCodes.length ? activeFilterCodes.map(c => {
