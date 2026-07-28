@@ -1,15 +1,21 @@
 // src/components/TradingViewChart.jsx
 // TradingView'ın ücretsiz "Advanced Chart" widget'ını gömer.
+//
+// DÜZELTME: Önceden container her sembol değişiminde innerHTML ile temizlenip
+// yeniden dolduruluyordu — ama React'in kendi re-render'ı ile TradingView'ın
+// asenkron script'inin container'ı okuma anı arasında bir yarış durumu oluşup
+// widget bazen kendi varsayılan sembolüne (NASDAQ:AAPL) düşüyordu.
+// Şimdi `key={symbol}` ile React'e, sembol her değiştiğinde DOM node'un
+// TAMAMINI yok edip sıfırdan kurmasını söylüyoruz — TradingView script'i
+// böylece her zaman gerçekten temiz, hiç dokunulmamış bir container buluyor.
 
 import { useEffect, useRef } from "react";
 
-export default function TradingViewChart({ symbol, height = "100%" }) {
+function ChartWidget({ symbol, height }) {
   const containerRef = useRef(null);
 
   useEffect(() => {
     if (!containerRef.current || !symbol) return;
-
-    containerRef.current.innerHTML = "";
 
     const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
 
@@ -42,6 +48,10 @@ export default function TradingViewChart({ symbol, height = "100%" }) {
 
     containerRef.current.appendChild(widgetDiv);
     containerRef.current.appendChild(script);
+
+    // Bu component `key={symbol}` ile her sembolde yeniden mount edildiği için
+    // burada ekstra bir temizlik/cleanup gerekmiyor — eski node zaten React
+    // tarafından tamamen kaldırılıyor.
   }, [symbol]);
 
   return (
@@ -51,4 +61,12 @@ export default function TradingViewChart({ symbol, height = "100%" }) {
       style={{ height, width: "100%" }}
     />
   );
+}
+
+export default function TradingViewChart({ symbol, height = "100%" }) {
+  if (!symbol) return null;
+  // key={symbol}: sembol değiştiğinde React'e component'i unmount edip
+  // sıfırdan mount ettiriyoruz — TradingView script'inin eski/yarım kalmış
+  // bir container'a yazma riskini tamamen ortadan kaldırıyor.
+  return <ChartWidget key={symbol} symbol={symbol} height={height} />;
 }
