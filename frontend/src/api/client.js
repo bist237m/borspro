@@ -41,5 +41,5 @@ export const calendar   = { list: (p={}) => request("GET",`/calendar${p&&Object.
 export const jobs       = { scan: () => request("POST","/jobs/scan"), sync: () => request("POST","/jobs/sync"), status: () => request("GET","/jobs/status"), overview: () => request("GET","/jobs/status/overview") };
 export const signals    = { tracked: () => request("GET","/signals/tracked"), performance: () => request("GET","/signals/performance"), extraTracked: () => request("GET","/signals/extra-tracked") };
 export const market      = { ticker: () => request("GET","/market/ticker") };
-export const ai = { comment: symbol => request("POST",`/ai/stocks/${symbol}/comment`), history: symbol => request("GET",`/ai/stocks/${symbol}/comment/history`), allCommentary: () => request("GET","/ai/commentary") };
+export const ai = { comment: symbol => request("POST",`/ai/stocks/${symbol}/comment`), history: symbol => request("GET",`/ai/stocks/${symbol}/comment/history`), allCommentary: () => request("GET","/ai/commentary"), performance: () => request("GET","/ai/performance") };
 export const reports = { taxSummary: () => request("GET","/reports/tax-summary") };

@@ -419,6 +419,86 @@ function TaxSummarySection() {
 }
 
 // ── 6. AI YORUM GEÇMİŞİ ─────────────────────────────────────
+// ── 5b. AI TAVSİYE PERFORMANSI (İsabet Oranı) ───────────────
+function AiPerformanceSection() {
+  const { data: stats, loading } = useApi(() => aiApi.performance(), []);
+  const [expanded, setExpanded] = useState(null);
+
+  return (
+    <Card title="AI Tavsiye Performansı (İsabet Oranı)">
+      {loading ? <Spinner /> : !stats?.some(s => s.total > 0) ? (
+        <div style={{ textAlign: "center", padding: 20, fontSize: 13, color: "var(--text-3)" }}>
+          Henüz ölçülebilir veri yok — AI yorumu istedikçe (ve zaman geçtikçe) burada dolacak.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {stats.filter(s => s.total > 0).map(s => {
+            const isOpen = expanded === s.tavsiye;
+            const badgeColor = s.win_rate == null ? null : s.win_rate >= 50;
+            return (
+              <div key={s.tavsiye} style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
+                <div onClick={() => setExpanded(isOpen ? null : s.tavsiye)} style={{ padding: 14, cursor: "pointer" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700 }}>{isOpen ? "▾" : "▸"} {s.tavsiye}</span>
+                    {s.win_rate != null ? (
+                      <span style={{
+                        fontFamily: "var(--font-m)", fontSize: 12, fontWeight: 700, padding: "2px 10px", borderRadius: 20,
+                        background: badgeColor ? "var(--green-bg)" : "var(--red-bg)",
+                        color: badgeColor ? "var(--green)" : "var(--red)",
+                      }}>%{s.win_rate} isabet</span>
+                    ) : (
+                      <span style={{
+                        fontFamily: "var(--font-m)", fontSize: 12, fontWeight: 700, padding: "2px 10px", borderRadius: 20,
+                        background: "var(--bg)", color: "var(--text-3)", border: "1px solid var(--border)",
+                      }}>isabet ölçülmez</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 10 }}>
+                    {s.tavsiye === "AL" && "Tavsiyeden bu yana fiyat yükseldiyse isabetli sayılır."}
+                    {s.tavsiye === "SAT" && "Tavsiyeden bu yana fiyat düştüyse isabetli sayılır."}
+                    {s.tavsiye === "BEKLE" && "BEKLE için net bir doğru/yanlış tanımı yok, sadece ortalama değişim gösterilir."}
+                  </div>
+                  <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 12 }}>
+                    <div><span style={{ color: "var(--text-3)" }}>Toplam örnek: </span><b style={{ fontFamily: "var(--font-m)" }}>{s.total}</b></div>
+                    <div><span style={{ color: "var(--text-3)" }}>Ort. değişim: </span><b style={{ fontFamily: "var(--font-m)", color: s.avg_change_pct >= 0 ? "var(--green)" : "var(--red)" }}>{s.avg_change_pct >= 0 ? "+" : ""}{fmt(s.avg_change_pct)}%</b></div>
+                  </div>
+                </div>
+
+                {isOpen && (
+                  <div style={{ borderTop: "1px solid var(--border)", background: "var(--bg)", padding: "10px 14px", overflowX: "auto" }}>
+                    {!s.items?.length ? (
+                      <div style={{ fontSize: 12, color: "var(--text-3)", padding: "8px 0" }}>Hisse detayı bulunamadı.</div>
+                    ) : (
+                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr><Th>Hisse</Th><Th>Tavsiye Tarihi</Th><Th>Tavsiye Fiyatı</Th><Th>Güncel Fiyat</Th><Th>Değişim</Th></tr>
+                        </thead>
+                        <tbody>
+                          {s.items.map((it, i) => (
+                            <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
+                              <Td style={{ fontFamily: "var(--font)", fontWeight: 600 }}>{it.symbol}</Td>
+                              <Td>{fmtDate(it.created_at)}</Td>
+                              <Td>₺{fmt(it.entry_price)}</Td>
+                              <Td>₺{fmt(it.current_price)}</Td>
+                              <Td style={{ color: it.change_pct >= 0 ? "var(--green)" : "var(--red)" }}>
+                                {it.change_pct >= 0 ? "+" : ""}{fmt(it.change_pct)}%
+                              </Td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function AiCommentaryHistorySection() {
   const { data: history, loading } = useApi(() => aiApi.allCommentary(), []);
   const [expanded, setExpanded] = useState(null);
@@ -511,6 +591,7 @@ export default function ReportsPage() {
       <FilterPerformanceSection />
       <ExtraFilterTrackingSection />
       <TaxSummarySection />
+      <AiPerformanceSection />
       <AiCommentaryHistorySection />
     </div>
   );

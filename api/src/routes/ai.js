@@ -211,12 +211,23 @@ SADECE aşağıdaki JSON formatında, başka hiçbir metin eklemeden cevap ver:
     const aiData = await aiRes.json();
     const responseText = aiData.choices[0].message.content;
 
+    // Tavsiyeyi (AL/SAT/BEKLE) ve o anki fiyatı ayrı kolonlarda saklıyoruz —
+    // böylece daha sonra "bu tavsiye doğru çıktı mı" diye ölçebiliyoruz.
+    let parsedComment = null;
+    try {
+      parsedComment = JSON.parse(responseText);
+    } catch {
+      parsedComment = null;
+    }
+    const tavsiye = parsedComment?.tavsiye ?? null;
+    const entryPrice = stock.price ?? null;
+
     await query(
-      "INSERT INTO ai_commentary (stock_id, user_id, question, response) VALUES ($1, $2, $3, $4)",
-      [stock.id, req.user.id, prompt, responseText]
+      "INSERT INTO ai_commentary (stock_id, user_id, question, response, tavsiye, entry_price) VALUES ($1, $2, $3, $4, $5, $6)",
+      [stock.id, req.user.id, prompt, responseText, tavsiye, entryPrice]
     );
 
-    res.json({ symbol: stock.symbol, comment: JSON.parse(responseText) });
+    res.json({ symbol: stock.symbol, comment: parsedComment ?? responseText });
   } catch (err) {
     next(err);
   }
@@ -251,6 +262,71 @@ router.get("/commentary", authenticate, async (req, res, next) => {
       [req.user.id]
     );
     res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/ai/performance — AL/SAT/BEKLE tavsiyelerinin isabet oranı raporu
+// (tavsiyeden bu yana fiyat gerçekten doğru yönde hareket etti mi)
+router.get("/performance", authenticate, async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT ac.id, ac.tavsiye, ac.entry_price, ac.created_at, s.symbol, s.name, q.price AS current_price
+       FROM ai_commentary ac
+       JOIN stocks s ON s.id = ac.stock_id
+       LEFT JOIN stock_quotes q ON q.stock_id = ac.stock_id
+       WHERE ac.user_id = $1 AND ac.tavsiye IS NOT NULL AND ac.entry_price IS NOT NULL
+       ORDER BY ac.created_at DESC`,
+      [req.user.id]
+    );
+
+    // entry_price/tavsiye olmayan (eski) kayıtlar ya da güncel fiyatı henüz
+    // gelmemiş hisseler isabet hesabına dahil edilemez.
+    const withChange = rows
+      .filter(r => r.current_price != null)
+      .map(r => ({
+        ...r,
+        change_pct: ((Number(r.current_price) - Number(r.entry_price)) / Number(r.entry_price)) * 100,
+      }));
+
+    const grouped = { AL: [], SAT: [], BEKLE: [] };
+    for (const r of withChange) {
+      if (grouped[r.tavsiye]) grouped[r.tavsiye].push(r);
+    }
+
+    const summarize = (items, tavsiye) => {
+      const total = items.length;
+      if (total === 0) return { tavsiye, total: 0, avg_change_pct: null, win_rate: null, items: [] };
+
+      const avgChange = items.reduce((sum, i) => sum + i.change_pct, 0) / total;
+
+      // "İsabet" tanımı: AL sonrası fiyat yükseldiyse, SAT sonrası düştüyse doğru sayılır.
+      // BEKLE için net bir doğru/yanlış tanımı olmadığından win_rate hesaplanmaz.
+      let winners = null;
+      if (tavsiye === "AL") winners = items.filter(i => i.change_pct > 0).length;
+      else if (tavsiye === "SAT") winners = items.filter(i => i.change_pct < 0).length;
+
+      return {
+        tavsiye,
+        total,
+        avg_change_pct: Math.round(avgChange * 100) / 100,
+        win_rate: winners != null ? Math.round((winners / total) * 100) : null,
+        items: items
+          .map(i => ({
+            symbol: i.symbol,
+            name: i.name,
+            entry_price: Number(i.entry_price),
+            current_price: Number(i.current_price),
+            change_pct: Math.round(i.change_pct * 100) / 100,
+            created_at: i.created_at,
+          }))
+          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
+      };
+    };
+
+    const result = ["AL", "SAT", "BEKLE"].map(t => summarize(grouped[t], t));
+    res.json(result);
   } catch (err) {
     next(err);
   }
