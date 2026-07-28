@@ -15,6 +15,37 @@ function fmt(v, d = 2) {
   return v == null ? "veri yok" : Number(v).toFixed(d);
 }
 
+// Bilanço satır adlarını (Toplam Varlıklar, Özkaynaklar vb.) tahmin etmiyoruz —
+// borsapy'den gelen ham JSON'u, "TOPLAM"/"ÖZKAYNAK" geçen üst-kalem satırlarını
+// öne çıkararak (token limiti için üst sınır koyup) olduğu gibi AI'ya veriyoruz.
+function formatBalanceSheet(f) {
+  const bs = f.balance_sheet_json;
+  if (!bs || !bs.data || !Object.keys(bs.data).length) return null;
+
+  const { data, prev_data, prev_period } = bs;
+  const priorityKeys = Object.keys(data).filter(k => /toplam|özkaynak/i.test(k));
+  const otherKeys = Object.keys(data).filter(k => !priorityKeys.includes(k));
+  const orderedKeys = [...priorityKeys, ...otherKeys].slice(0, 25);
+
+  const lines = orderedKeys.map(k => {
+    const cur = data[k];
+    const prev = prev_data ? prev_data[k] : null;
+    const curStr = cur != null ? Number(cur).toLocaleString("tr-TR") : "veri yok";
+    if (prev != null && cur != null && prev !== 0) {
+      const changePct = (((cur - prev) / Math.abs(prev)) * 100).toFixed(1);
+      return `- ${k}: ${curStr} TL (önceki döneme göre %${changePct})`;
+    }
+    return `- ${k}: ${curStr} TL`;
+  });
+
+  return {
+    financialGroup: f.financial_group,
+    period: f.balance_sheet_period,
+    prevPeriod: prev_period,
+    text: lines.join("\n"),
+  };
+}
+
 async function getHistoricalStats(filterCode) {
   const { rows } = await query(
     `SELECT
@@ -47,13 +78,19 @@ router.post("/stocks/:symbol/comment", authenticate, async (req, res, next) => {
     }
 
     const { rows: stockRows } = await query(
-      `SELECT s.id, s.symbol, s.name, q.price, q.change_pct
+      `SELECT s.id, s.symbol, s.name, s.sector, q.price, q.change_pct
        FROM stocks s LEFT JOIN stock_quotes q ON q.stock_id = s.id
        WHERE s.symbol = $1`,
       [symbol]
     );
     const stock = stockRows[0];
     if (!stock) return res.status(404).json({ error: "Hisse bulunamadı." });
+
+    const { rows: indexRows } = await query(
+      "SELECT index_code FROM stock_indices WHERE stock_id = $1 ORDER BY index_code",
+      [stock.id]
+    );
+    const indexMemberships = indexRows.map(r => r.index_code);
 
     const { rows: filterRows } = await query("SELECT * FROM indicator_snapshots WHERE stock_id = $1", [stock.id]);
     const filterData = filterRows[0] || {};
@@ -86,14 +123,24 @@ router.post("/stocks/:symbol/comment", authenticate, async (req, res, next) => {
       : null;
     const volumeStatus = (f.volume != null && f.avg_volume_10d) ?
       (((f.volume / f.avg_volume_10d) - 1) * 100) : null;
+    // PEG = F/K / büyüme oranı — sadece büyüme pozitifse anlamlı bir çarpan verir
+    const pegRatio = (f.pe_ratio != null && f.net_income_yoy_growth && f.net_income_yoy_growth > 0)
+      ? (f.pe_ratio / f.net_income_yoy_growth) : null;
+    const balanceSheet = formatBalanceSheet(f);
 
     const prompt = `
 Sen kıdemli bir finansal analistsin. Aşağıda temel, teknik ve haber (KAP) verilerini paylaştığım ${stock.symbol} (${stock.name}) hissesi için kapsamlı, objektif ve anlaşılır bir analiz yapmanı istiyorum.
 
 1. TEMEL ANALİZ VERİLERİ:
+- Sektör: ${stock.sector ?? "bilinmiyor"}
+- Endeks Üyelikleri: ${indexMemberships.length ? indexMemberships.join(", ") : "yok / bilinmiyor"}
 - F/K Oranı: ${fmt(f.pe_ratio)}
 - PD/DD Oranı: ${fmt(f.pb_ratio)}
+- FD/FAVÖK: ${fmt(f.ev_ebitda)}
+- PEG Rasyosu: ${pegRatio != null ? pegRatio.toFixed(2) : "veri yok (büyüme negatif/yok)"}
 - Özsermaye Karlılığı (ROE): %${fmt(f.roe, 1)}
+- Net Kar Marjı: %${fmt(f.net_margin, 1)}
+- FAVÖK Marjı: %${fmt(f.ebitda_margin, 1)}
 - Son Çeyrek Finansalları: Net kâr geçen yıla göre %${fmt(f.net_income_yoy_growth, 1)} değişti, ciro %${fmt(f.revenue_yoy_growth, 1)} değişti
 - Borç Durumu: Toplam Borç/FAVÖK oranı ~ ${netDebtToEbitda != null ? netDebtToEbitda.toFixed(2) : "veri yok"}
 
@@ -114,18 +161,24 @@ ${activeFilterCodes.length ? activeFilterCodes.map(c => {
 
 3. KAP HABERLERİ / BEKLENTİLER:
 ${newsRows.length ? newsRows.map(n => `- ${n.title}`).join("\n") : "- Güncel haber bulunamadı."}
+${balanceSheet ? `
+
+4. BİLANÇO VERİLERİ (${balanceSheet.financialGroup === "UFRS" ? "bankacılık formatı" : "sanayi şirketi formatı"}, dönem: ${balanceSheet.period}${balanceSheet.prevPeriod ? `, karşılaştırma dönemi: ${balanceSheet.prevPeriod}` : ""}):
+${balanceSheet.text}` : ""}
 
 SENDEN İSTEDİKLERİM:
 1. Bu verilerin ışığında şirketin mevcut finansal sağlığını ve çarpanlarını yorumla (ucuz mu pahalı mı görünüyor).
 2. Teknik veriler ile temel verilerin birbiriyle uyumlu olup olmadığını değerlendir.
 3. KAP haberlerinin kısa ve orta vadede piyasa fiyatlamasına olası etkilerini analiz et.
-4. Bu hisse için potansiyel riskleri ve fırsatları ayrı ayrı listele.
+4. Bilanço verisi varsa, dönemsel aktiviteyi (bir önceki döneme göre değişimi) ve bunun şirketin finansal yapısı için ne anlama geldiğini yorumla.
+5. Bu hisse için potansiyel riskleri ve fırsatları ayrı ayrı listele.
 
 SADECE aşağıdaki JSON formatında, başka hiçbir metin eklemeden cevap ver:
 {
   "finansal_saglik": "Çarpanlar ve finansal sağlık değerlendirmesi (2-4 cümle)",
   "teknik_temel_uyumu": "Teknik ve temel verilerin uyumu değerlendirmesi (2-3 cümle)",
   "kap_etkisi": "KAP haberlerinin olası etkisi (2-3 cümle)",
+  "bilanco_yorumu": "${balanceSheet ? "Bilanço dönem aktivitesi ve finansal yapı değerlendirmesi (2-3 cümle)" : "Bilanço verisi bulunmuyor"}",
   "riskler": ["risk maddesi 1", "risk maddesi 2", "risk maddesi 3"],
   "firsatlar": ["fırsat maddesi 1", "fırsat maddesi 2", "fırsat maddesi 3"],
   "tavsiye": "AL" | "SAT" | "BEKLE",
