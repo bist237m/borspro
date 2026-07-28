@@ -60,6 +60,7 @@ async function getHistoricalStats(filterCode) {
   return rows[0];
 }
 
+// BIST Özelleştirmeli, Sektörel ve Tarihsel Çarpan Destekli AI Analiz Rotası
 router.post("/stocks/:symbol/comment", authenticate, async (req, res, next) => {
   try {
     const symbol = req.params.symbol.toUpperCase();
@@ -103,6 +104,25 @@ router.post("/stocks/:symbol/comment", authenticate, async (req, res, next) => {
       [stock.id]
     );
 
+    // Sektörel Ortalamaları Dinamik Hesaplama
+    // Sektördeki aşırı uçları (outliers) törpülemek için basit filtreler (PE < 150 vb.) kullanıyoruz.
+    let sectorData = null;
+    if (stock.sector) {
+      const { rows: sectorRows } = await query(
+        `SELECT 
+           AVG(f.pe_ratio) FILTER (WHERE f.pe_ratio > 0 AND f.pe_ratio < 150) as avg_pe,
+           AVG(f.pb_ratio) FILTER (WHERE f.pb_ratio > 0 AND f.pb_ratio < 30) as avg_pb,
+           AVG(f.ev_ebitda) FILTER (WHERE f.ev_ebitda > 0 AND f.ev_ebitda < 100) as avg_ev_ebitda,
+           AVG(f.roe) as avg_roe,
+           AVG(f.dividend_yield) FILTER (WHERE f.dividend_yield > 0) as avg_dividend_yield
+         FROM stocks s
+         JOIN fundamentals_snapshots f ON f.stock_id = s.id
+         WHERE s.sector = $1`,
+        [stock.sector]
+      );
+      sectorData = sectorRows[0];
+    }
+
     const activeFilterCodes = [];
     if (filterData.haftalik_1) activeFilterCodes.push("HAFTALIK_1");
     if (filterData.haftalik_2) activeFilterCodes.push("HAFTALIK_2");
@@ -123,64 +143,78 @@ router.post("/stocks/:symbol/comment", authenticate, async (req, res, next) => {
       : null;
     const volumeStatus = (f.volume != null && f.avg_volume_10d) ?
       (((f.volume / f.avg_volume_10d) - 1) * 100) : null;
-    // PEG = F/K / büyüme oranı — sadece büyüme pozitifse anlamlı bir çarpan verir
     const pegRatio = (f.pe_ratio != null && f.net_income_yoy_growth && f.net_income_yoy_growth > 0)
       ? (f.pe_ratio / f.net_income_yoy_growth) : null;
     const balanceSheet = formatBalanceSheet(f);
 
     const prompt = `
-Sen kıdemli bir finansal analistsin. Aşağıda temel, teknik ve haber (KAP) verilerini paylaştığım ${stock.symbol} (${stock.name}) hissesi için kapsamlı, objektif ve anlaşılır bir analiz yapmanı istiyorum.
+Sen Borsa İstanbul (BIST) dinamiklerine tam hakim, deneyimli bir kıdemli portföy yöneticisi ve analistsin. Aşağıda temel, sektörel, temettü, teknik ve haber (KAP) verilerini paylaştığım ${stock.symbol} (${stock.name}) hissesi için profesyonel, veri odaklı ve objektif bir analiz yapmanı istiyorum.
 
-1. TEMEL ANALİZ VERİLERİ:
+1. ŞİRKET VE TEMEL BÜYÜME VERİLERİ:
 - Sektör: ${stock.sector ?? "bilinmiyor"}
 - Endeks Üyelikleri: ${indexMemberships.length ? indexMemberships.join(", ") : "yok / bilinmiyor"}
-- F/K Oranı: ${fmt(f.pe_ratio)}
+- Piyasa Değeri (Market Cap): ${f.market_cap ? Number(f.market_cap).toLocaleString("tr-TR") + " TL" : "veri yok"}
+- F/K Oranı: ${fmt(f.pe_ratio)} | Kendi Tarihsel F/K Ortalaması: ${fmt(f.pe_hist_avg)}
+- FD/FAVÖK: ${fmt(f.ev_ebitda)} | Kendi Tarihsel FD/FAVÖK Ort: ${fmt(f.ev_ebitda_hist_avg)}
 - PD/DD Oranı: ${fmt(f.pb_ratio)}
-- FD/FAVÖK: ${fmt(f.ev_ebitda)}
 - PEG Rasyosu: ${pegRatio != null ? pegRatio.toFixed(2) : "veri yok (büyüme negatif/yok)"}
 - Özsermaye Karlılığı (ROE): %${fmt(f.roe, 1)}
-- Net Kar Marjı: %${fmt(f.net_margin, 1)}
-- FAVÖK Marjı: %${fmt(f.ebitda_margin, 1)}
-- Son Çeyrek Finansalları: Net kâr geçen yıla göre %${fmt(f.net_income_yoy_growth, 1)} değişti, ciro %${fmt(f.revenue_yoy_growth, 1)} değişti
+- Kâr Marjları: Net Marj %${fmt(f.net_margin, 1)}, FAVÖK Marjı %${fmt(f.ebitda_margin, 1)}
+- Son Çeyrek Finansalları: Net kâr yıllık %${fmt(f.net_income_yoy_growth, 1)}, ciro %${fmt(f.revenue_yoy_growth, 1)} değişti.
 - Borç Durumu: Toplam Borç/FAVÖK oranı ~ ${netDebtToEbitda != null ? netDebtToEbitda.toFixed(2) : "veri yok"}
 
-2. TEKNİK ANALİZ VERİLERİ:
+2. SEKTÖREL KARŞILAŞTIRMA (Sektör: ${stock.sector ?? "Bilinmiyor"}):
+${sectorData ? `
+- Sektör Ortalama F/K: ${fmt(sectorData.avg_pe)} (Hisse: ${fmt(f.pe_ratio)})
+- Sektör Ortalama PD/DD: ${fmt(sectorData.avg_pb)} (Hisse: ${fmt(f.pb_ratio)})
+- Sektör Ortalama FD/FAVÖK: ${fmt(sectorData.avg_ev_ebitda)} (Hisse: ${fmt(f.ev_ebitda)})
+- Sektör Ortalama ROE: %${fmt(sectorData.avg_roe, 1)} (Hisse: %${fmt(f.roe, 1)})
+- Sektör Ortalama Temettü Verimi: %${fmt(sectorData.avg_dividend_yield)} (Hisse: %${fmt(f.dividend_yield)})
+` : "- Sektörel ortalama verisi hesaplanamadı."}
+
+3. TEMETTÜ, YABANCI TAKASI VE MOMENTUM (BIST Dinamikleri):
+- Temettü Verimi: %${fmt(f.dividend_yield)}
+- Yabancı Takas Oranı: %${fmt(f.foreign_ratio, 1)}
+- Yabancı Takası Değişimi: Son 1 haftada %${fmt(f.foreign_ratio_1w_change, 2)}, son 1 ayda %${fmt(f.foreign_ratio_1m_change, 2)}
+- Hisse Getirisi: Günlük %${fmt(f.return_1d)}, Haftalık %${fmt(f.return_1w)}, Aylık %${fmt(f.return_1m)}
+
+4. TEKNİK ANALİZ VERİLERİ:
 - Güncel Fiyat: ${stock.price ?? "?"} TL (${stock.change_pct ?? "?"}%)
-- Destek ve Direnç Seviyeleri: Yakın destek ~${fmt(f.pivot_s1)}, yakın direnç ~${fmt(f.pivot_r1)}
+- Destek / Direnç: Yakın destek ~${fmt(f.pivot_s1)}, yakın direnç ~${fmt(f.pivot_r1)}
 - RSI: ${fmt(f.rsi, 1)}
 - MACD: ${macdSignalRel ?? "veri yok"}
-- 50 Günlük Hareketli Ortalama: Fiyat, HO'nun ${priceVsSma50 ?? "veri yok"} (HO: ${fmt(f.sma50)})
-- Hacim Durumu: Güncel hacim, 10 günlük ortalamanın ${volumeStatus != null ? (volumeStatus >= 0 ? `%${volumeStatus.toFixed(0)} üzerinde` : `%${Math.abs(volumeStatus).toFixed(0)} altında`) : "veri yok"}
+- 50 Günlük HO: Fiyat HO'nun ${priceVsSma50 ?? "veri yok"} (HO: ${fmt(f.sma50)})
+- Hacim: Güncel hacim, 10 günlük ortalamanın ${volumeStatus != null ? (volumeStatus >= 0 ? `%${volumeStatus.toFixed(0)} üzerinde` : `%${Math.abs(volumeStatus).toFixed(0)} altında`) : "veri yok"}
 
-TETİKLENEN ÖZEL TEKNİK FİLTRELER (kendi tarama sistemimiz):
+TETİKLENEN ÖZEL TEKNİK FİLTRELER (Algoritmamız):
 ${activeFilterCodes.length ? activeFilterCodes.map(c => {
   const s = historicalStats[c];
   const winRate = s.total > 0 ? ((s.winners / s.total) * 100).toFixed(0) : "0";
   return `- ${c}: ${FILTER_DEFINITIONS[c]} | Geçmişte ${s.total} örnek, ortalama getiri %${s.avg_change_pct ?? "?"}, kazanma oranı %${winRate}, %10 kazanca ortalama ${s.avg_days_to_10 ?? "?"} günde ulaşılmış.`;
 }).join("\n") : "- Şu an hiçbir özel filtre tetiklenmiyor."}
 
-3. KAP HABERLERİ / BEKLENTİLER:
+5. KAP HABERLERİ VE BİLANÇO:
 ${newsRows.length ? newsRows.map(n => `- ${n.title}`).join("\n") : "- Güncel haber bulunamadı."}
-${balanceSheet ? `
+${balanceSheet ? `\nBİLANÇO YAPISI (${balanceSheet.financialGroup} formatı, Dönem: ${balanceSheet.period}${balanceSheet.prevPeriod ? `, karşılaştırma dönemi: ${balanceSheet.prevPeriod}` : ""}):\n${balanceSheet.text}` : ""}
 
-4. BİLANÇO VERİLERİ (${balanceSheet.financialGroup === "UFRS" ? "bankacılık formatı" : "sanayi şirketi formatı"}, dönem: ${balanceSheet.period}${balanceSheet.prevPeriod ? `, karşılaştırma dönemi: ${balanceSheet.prevPeriod}` : ""}):
-${balanceSheet.text}` : ""}
+SENDEN İSTEDİKLERİM (Aşağıdaki JSON şemasına kesinlikle sadık kal):
+1. "genel_degerlendirme": Verilerin birleştirilmiş 1-2 cümlelik özeti.
+2. "temel_ve_sektorel": Sektör ortalamaları ve kendi tarihsel ortalamalarına göre şirketin ucuz/pahalı olup olmadığını, kârlılığını yorumla.
+3. "temettu_ve_takas": Temettü verimini ve BIST için önemli olan "Yabancı Takas Oranı"ndaki son değişimi (para girişi/çıkışı) yorumla.
+4. "teknik_temel_uyumu": Fiyat momentumu, hacim, yabancı ilgisi ve teknik filtrelerin temel tabloyu destekleyip desteklemediğini açıkla.
+5. "kap_ve_bilanco": Haberlerin ve bilanço dönem aktivitesinin kısa vade beklentilere etkisini belirt.
+6. "riskler" ve "firsatlar": En az ikişer madde yaz.
+7. "tavsiye" ve "risk_seviyesi" alanlarını rasyonel şekilde doldur.
 
-SENDEN İSTEDİKLERİM:
-1. Bu verilerin ışığında şirketin mevcut finansal sağlığını ve çarpanlarını yorumla (ucuz mu pahalı mı görünüyor).
-2. Teknik veriler ile temel verilerin birbiriyle uyumlu olup olmadığını değerlendir.
-3. KAP haberlerinin kısa ve orta vadede piyasa fiyatlamasına olası etkilerini analiz et.
-4. Bilanço verisi varsa, dönemsel aktiviteyi (bir önceki döneme göre değişimi) ve bunun şirketin finansal yapısı için ne anlama geldiğini yorumla.
-5. Bu hisse için potansiyel riskleri ve fırsatları ayrı ayrı listele.
-
-SADECE aşağıdaki JSON formatında, başka hiçbir metin eklemeden cevap ver:
+SADECE AŞAĞIDAKİ JSON FORMATINDA CEVAP VER:
 {
-  "finansal_saglik": "Çarpanlar ve finansal sağlık değerlendirmesi (2-4 cümle)",
-  "teknik_temel_uyumu": "Teknik ve temel verilerin uyumu değerlendirmesi (2-3 cümle)",
-  "kap_etkisi": "KAP haberlerinin olası etkisi (2-3 cümle)",
-  "bilanco_yorumu": "${balanceSheet ? "Bilanço dönem aktivitesi ve finansal yapı değerlendirmesi (2-3 cümle)" : "Bilanço verisi bulunmuyor"}",
-  "riskler": ["risk maddesi 1", "risk maddesi 2", "risk maddesi 3"],
-  "firsatlar": ["fırsat maddesi 1", "fırsat maddesi 2", "fırsat maddesi 3"],
+  "genel_degerlendirme": "...",
+  "temel_ve_sektorel": "...",
+  "temettu_ve_takas": "...",
+  "teknik_temel_uyumu": "...",
+  "kap_ve_bilanco": "...",
+  "riskler": ["...", "..."],
+  "firsatlar": ["...", "..."],
   "tavsiye": "AL" | "SAT" | "BEKLE",
   "risk_seviyesi": "Düşük" | "Orta" | "Yüksek"
 }`.trim();
@@ -192,14 +226,14 @@ SADECE aşağıdaki JSON formatında, başka hiçbir metin eklemeden cevap ver:
         "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: "gpt-4o-mini", // Veya ihtiyaca göre gpt-4o
         messages: [
-          { role: "system", content: "Sen deneyimli bir Borsa İstanbul teknik ve temel analiz uzmanısın. Yatırım tavsiyesi niteliği taşımadığını unutma, sadece analiz sun." },
+          { role: "system", content: "Sen deneyimli bir Borsa İstanbul (BIST) analistisin. Verileri sentezleyerek nesnel, profesyonel bir JSON çıktısı üretirsin. Yatırım tavsiyesi niteliği taşımadığını unutma." },
           { role: "user", content: prompt },
         ],
         response_format: { type: "json_object" },
         temperature: 0.4,
-        max_tokens: 1200,
+        max_tokens: 1500,
       }),
     });
 
