@@ -32,15 +32,25 @@ INDEX_CODES = {
     "XUTEK": "BIST TEKNOLOJİ",
 }
 
-MAX_WORKERS = 8  # KAP fallback'i için — bilanço isteğiyle aynı ağırlıkta
+MAX_WORKERS = 10  # KAP muhtemelen hız sınırı uyguluyor — 15 çok agresif olabilir, düşürüldü
+RETRY_DELAY_SECONDS = 2
 
 
 def _fetch_sector_per_stock(symbol: str):
-    """Yedek plan: KAP üzerinden hisse başına sektör bilgisi."""
+    """Yedek plan: KAP üzerinden hisse başına sektör bilgisi.
+    (sector, error) tuple döner — error None ise başarılı demektir.
+    Geçici hatalarda (ağ/timeout) bir kere daha dener."""
+    import time
     try:
-        return bp.Ticker(symbol).info.get("sector")
-    except Exception:
-        return None
+        sector = bp.Ticker(symbol).info.get("sector")
+        return (sector, None)
+    except Exception as first_err:
+        time.sleep(RETRY_DELAY_SECONDS)
+        try:
+            sector = bp.Ticker(symbol).info.get("sector")
+            return (sector, None)
+        except Exception as second_err:
+            return (None, str(second_err) or str(first_err))
 
 
 def run_sync_sectors():
@@ -105,14 +115,24 @@ def _sync_sectors_bulk(sector_names):
 
 
 def _sync_sectors_per_stock():
-    """Yedek plan: her hisse için KAP'tan sektör çek (paralel)."""
+    """Yedek plan: her hisse için KAP'tan sektör çek (paralel).
+    Sadece sector'ü BOŞ olan hisseleri işler — ilk çalıştırmadan sonra
+    (yeni hisse eklenmediği sürece) tekrar çalıştırmalar neredeyse anında biter."""
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT id, symbol FROM stocks WHERE is_active = TRUE ORDER BY symbol")
+            cur.execute(
+                "SELECT id, symbol FROM stocks WHERE is_active = TRUE AND sector IS NULL ORDER BY symbol"
+            )
             stocks = cur.fetchall()
+
+            if not stocks:
+                print("✅ Tüm hisselerin sektörü zaten dolu, çekilecek bir şey yok.")
+                return {"updated": 0, "skipped": 0}
+
             print(f"🏷️  KAP üzerinden {len(stocks)} hisse için sektör çekiliyor ({MAX_WORKERS} paralel)...")
 
             updated, skipped, completed = 0, 0, 0
+            error_samples = {}  # hata mesajı -> kaç hissede görüldü (teşhis için)
 
             with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
                 futures = {executor.submit(_fetch_sector_per_stock, symbol): (stock_id, symbol) for stock_id, symbol in stocks}
@@ -121,7 +141,10 @@ def _sync_sectors_per_stock():
                     stock_id, symbol = futures[future]
                     completed += 1
                     try:
-                        sector_name = future.result()
+                        sector_name, err = future.result()
+                        if err:
+                            short_err = str(err)[:120]
+                            error_samples[short_err] = error_samples.get(short_err, 0) + 1
                         if not sector_name:
                             skipped += 1
                             continue
@@ -143,6 +166,10 @@ def _sync_sectors_per_stock():
             conn.commit()
 
     print(f"✅ Sektör senkronizasyonu (KAP fallback) tamamlandı: {updated} güncellendi, {skipped} veri yok")
+    if error_samples:
+        print("📋 Görülen hata türleri (teşhis için):")
+        for msg, count in sorted(error_samples.items(), key=lambda x: -x[1])[:10]:
+            print(f"   [{count}x] {msg}")
     return {"updated": updated, "skipped": skipped}
 
 
