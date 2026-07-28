@@ -16,6 +16,8 @@ import jobsRouter    from "./routes/jobs.js";
 import signalsRouter from "./routes/signals.js";
 import aiRouter      from "./routes/ai.js";
 import reportsRouter from "./routes/reports.js";
+import sectorsRouter from "./routes/sectors.js";
+import calendarRouter from "./routes/calendar.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import pool from "./db/pool.js";
 
@@ -40,6 +42,8 @@ app.use("/api/news",       newsRouter);
 app.use("/api/market",     marketRouter);
 app.use("/api/jobs",       jobsRouter);
 app.use("/api/signals",    signalsRouter);
+app.use("/api/sectors", sectorsRouter);
+app.use("/api/calendar", calendarRouter);
 app.use("/api/ai",         aiRouter);
 app.use("/api/reports",    reportsRouter);
 
