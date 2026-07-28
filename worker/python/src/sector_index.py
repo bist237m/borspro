@@ -1,14 +1,23 @@
 # python/src/sector_index.py
 # Sektör ve endeks (BIST30/50/100/Banka/Sınai/Hizmetler/Teknoloji) üyeliği.
 #
-# ÖNEMLİ: Hisse başına istek YAPMIYORUZ. borsapy'nin İş Yatırım screener'ı
-# sektör bazında, Index sağlayıcısı da endeks bazında TOPLU liste veriyor:
+# ÖNEMLİ: Hisse başına istek YAPMIYORUZ (mümkün olduğunda). borsapy'nin İş
+# Yatırım screener'ı sektör bazında, Index sağlayıcısı da endeks bazında
+# TOPLU liste veriyor:
 #   - bp.sectors() -> tüm sektör adları (örn. ~20-30 tane)
 #   - Screener().set_sector(ad).run() -> o sektördeki TÜM hisseler (tek istek)
 #   - bp.Index(kod).components -> o endeksteki TÜM hisseler (tek istek)
-# Yani 574 hisse yerine sadece (sektör sayısı + endeks sayısı) kadar istek atıyoruz.
+#
+# BİLİNEN KIRILGANLIK: bp.sectors(), İş Yatırım'ın sayfasından sabit bir
+# ASP.NET dropdown ID'sini scrape ediyor. Bu ID sayfa her güncellendiğinde
+# değişebiliyor ve borsapy bu durumda HATA FIRLATMIYOR, sessizce boş liste
+# döndürüyor. Bu yüzden bulk yöntem boş dönerse, hisse başına (yavaş ama
+# çalışan) KAP tabanlı Ticker(symbol).info["sector"] yöntemine otomatik
+# düşüyoruz (aynı KAP altyapısı bilanço verisinde de kullanılıyor, çalıştığı
+# doğrulandı).
 
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import borsapy as bp
 from db import get_connection
 
@@ -23,17 +32,40 @@ INDEX_CODES = {
     "XUTEK": "BIST TEKNOLOJİ",
 }
 
+MAX_WORKERS = 8  # KAP fallback'i için — bilanço isteğiyle aynı ağırlıkta
+
+
+def _fetch_sector_per_stock(symbol: str):
+    """Yedek plan: KAP üzerinden hisse başına sektör bilgisi."""
+    try:
+        return bp.Ticker(symbol).info.get("sector")
+    except Exception:
+        return None
+
 
 def run_sync_sectors():
-    """stocks.sector kolonunu, İş Yatırım'ın sektör bazında toplu taramasıyla doldurur."""
+    """stocks.sector kolonunu doldurur.
+    Önce hızlı toplu yöntemi dener (bp.sectors() + set_sector tarama);
+    o boş/başarısız dönerse hisse başına KAP fallback'ine geçer."""
     try:
         sector_names = bp.sectors()
     except Exception as err:
-        print(f"❌ Sektör listesi alınamadı: {err}")
-        return {"updated": 0}
+        print(f"⚠️  Toplu sektör listesi alınamadı ({err}), KAP fallback'ine geçiliyor...")
+        sector_names = []
 
-    print(f"🏷️  {len(sector_names)} sektör bulundu, taranıyor...")
+    if sector_names:
+        print(f"🏷️  {len(sector_names)} sektör bulundu (toplu yöntem), taranıyor...")
+        result = _sync_sectors_bulk(sector_names)
+        if result["updated"] > 0:
+            return result
+        print("⚠️  Toplu yöntem 0 hisse güncelledi, KAP fallback'ine geçiliyor...")
+    else:
+        print("⚠️  Toplu sektör listesi boş döndü (İş Yatırım sayfa yapısı değişmiş olabilir), KAP fallback'ine geçiliyor...")
 
+    return _sync_sectors_per_stock()
+
+
+def _sync_sectors_bulk(sector_names):
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT id, symbol FROM stocks WHERE is_active = TRUE")
@@ -68,8 +100,50 @@ def run_sync_sectors():
 
         conn.commit()
 
-    print(f"✅ Sektör senkronizasyonu tamamlandı: {updated} hisse güncellendi")
+    print(f"✅ Sektör senkronizasyonu (toplu) tamamlandı: {updated} hisse güncellendi")
     return {"updated": updated}
+
+
+def _sync_sectors_per_stock():
+    """Yedek plan: her hisse için KAP'tan sektör çek (paralel)."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, symbol FROM stocks WHERE is_active = TRUE ORDER BY symbol")
+            stocks = cur.fetchall()
+            print(f"🏷️  KAP üzerinden {len(stocks)} hisse için sektör çekiliyor ({MAX_WORKERS} paralel)...")
+
+            updated, skipped, completed = 0, 0, 0
+
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                futures = {executor.submit(_fetch_sector_per_stock, symbol): (stock_id, symbol) for stock_id, symbol in stocks}
+
+                for future in as_completed(futures):
+                    stock_id, symbol = futures[future]
+                    completed += 1
+                    try:
+                        sector_name = future.result()
+                        if not sector_name:
+                            skipped += 1
+                            continue
+
+                        cur.execute("SAVEPOINT sp_sector_kap")
+                        try:
+                            cur.execute("UPDATE stocks SET sector = %s WHERE id = %s", (sector_name, stock_id))
+                            cur.execute("RELEASE SAVEPOINT sp_sector_kap")
+                            updated += 1
+                        except Exception as err:
+                            cur.execute("ROLLBACK TO SAVEPOINT sp_sector_kap")
+                            print(f"   ❌ {symbol}: {err}")
+                    except Exception as err:
+                        print(f"   ❌ {symbol} (KAP hatası): {err}")
+
+                    if completed % 100 == 0:
+                        print(f"   {completed}/{len(stocks)} tamamlandı...")
+
+            conn.commit()
+
+    print(f"✅ Sektör senkronizasyonu (KAP fallback) tamamlandı: {updated} güncellendi, {skipped} veri yok")
+    return {"updated": updated, "skipped": skipped}
 
 
 def run_sync_indices():
