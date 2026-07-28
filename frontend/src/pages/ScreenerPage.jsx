@@ -14,6 +14,12 @@ const fmtB = (n) => {
   if (v >= 1e3) return `${(v/1e3).toFixed(0)}K`;
   return String(v);
 };
+const fmtDate = (d) => {
+  if (!d) return "—";
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return String(d);
+  return date.toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric" });
+};
 
 const PRESETS = [
   { id:"oversold",  label:"🔵 Aşırı Satım",    desc:"RSI < 30",        filters:{ rsi_max:"30" } },
