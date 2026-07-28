@@ -10,3 +10,8 @@ worker/venv/
 worker/python/__pycache__/
 worker/python/src/__pycache__/
 *.pyc
+
+.env
+worker/.env
+api/.env
+**/.env
