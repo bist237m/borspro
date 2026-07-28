@@ -12,6 +12,8 @@ import TechnicalsPage from "./pages/TechnicalsPage.jsx";
 import ScreenerPage   from "./pages/ScreenerPage.jsx";
 import SettingsPage   from "./pages/SettingsPage.jsx";
 import ReportsPage    from "./pages/ReportsPage.jsx";
+import SectorsPage    from "./pages/SectorsPage.jsx";
+import CalendarPage   from "./pages/CalendarPage.jsx";
 
 // ── GLOBAL STYLES ──────────────────────────────────────────
 const G = `
@@ -328,7 +330,9 @@ function Dashboard() {
           {active === "screener"    && <ScreenerPage />}
           {active === "settings"    && <SettingsPage />}
           {active === "reports"     && <ReportsPage />}
-          {!["overview","positions","watchlist","charts","technicals","screener","settings","reports"].includes(active) && <Soon id={active} />}
+          {active === "sectors"     && <SectorsPage />}
+          {active === "calendar"    && <CalendarPage />}
+          {!["overview","positions","watchlist","charts","technicals","screener","settings","reports","sectors","calendar"].includes(active) && <Soon id={active} />}
         </main>
         <footer style={{ borderTop: "1px solid var(--border)", padding: "8px 28px", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 4 }}>
           <span style={{ fontFamily: "var(--font-m)", fontSize: 10, color: "var(--text-3)" }}>© 2026 Borsa Pro Analytics — Yatırım tavsiyesi değildir</span>
