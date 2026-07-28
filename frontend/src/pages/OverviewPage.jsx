@@ -7,13 +7,19 @@ import TradingViewChart from "../components/TradingViewChart.jsx";
 
 // ── SAYFAYA ÖZEL RESPONSIVE STİLLER ────────────────────────
 const OVERVIEW_STYLES = `
-  .kpi-row { display:flex; gap:14px; flex-wrap:wrap; }
-  .kpi-row > * { flex: 1 1 220px; }
+  .kpi-row { display:grid; grid-template-columns: minmax(280px, 1.1fr) 2fr; gap:14px; }
+  .stat-grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
   .chart-row { display:grid; grid-template-columns: 2fr 1fr; gap:16px; }
   .gainers-row { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+  @media (max-width: 900px) {
+    .kpi-row { grid-template-columns: 1fr; }
+  }
   @media (max-width: 780px) {
     .chart-row { grid-template-columns: 1fr; }
     .gainers-row { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 420px) {
+    .stat-grid { grid-template-columns: 1fr; }
   }
 `;
 
@@ -79,45 +85,73 @@ function SectionTitle({ title, action, onAction }) {
   );
 }
 
-function KpiCard({ label, value, sub, up, icon, delay }) {
+// ── KAHRAMAN BLOK + SESSİZ İSTATİSTİKLER ────────────────────
+// Sayfanın tek sorusu "param ne durumda?" — cevabı Net Getiri taşır,
+// diğer metrikler onun etrafında sessiz bir şerit olarak durur.
+function HeroCard({ netGrowth, netGrowthPct, netDeposited, totalAssets, loading }) {
+  if (loading) return <LoadingCard height={170} />;
+  const up = netGrowth >= 0;
+  const hasDeposit = netDeposited > 0;
+  return (
+    <div className="fade" style={{
+      minWidth: 0, background: "var(--surface)", border: "1px solid var(--border)",
+      borderRadius: 10, padding: "24px 26px", position: "relative", overflow: "hidden",
+      display: "flex", flexDirection: "column", justifyContent: "center",
+    }}>
+      <div style={{
+        position: "absolute", top: 0, left: 0, right: 0, height: 3,
+        background: up ? "linear-gradient(90deg,var(--green),transparent)" : "linear-gradient(90deg,var(--red),transparent)",
+      }}/>
+      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.09em", color: "var(--text-3)", textTransform: "uppercase", marginBottom: 10 }}>
+        Net Getiri
+      </div>
+      <div style={{ color: up ? "var(--green)" : "var(--red)", lineHeight: 1.05, marginBottom: 10 }}>
+        <Money value={netGrowth} sign size={38} />
+      </div>
+      {hasDeposit ? (
+        <>
+          <div style={{
+            display: "inline-flex", alignSelf: "flex-start", alignItems: "center", gap: 4,
+            padding: "3px 10px", borderRadius: 20, fontSize: 12, fontFamily: "var(--font-m)", fontWeight: 600,
+            color: up ? "var(--green)" : "var(--red)",
+            background: up ? "var(--green-bg)" : "var(--red-bg)",
+            marginBottom: 12,
+          }}>
+            {up ? "▲" : "▼"} %{Math.abs(netGrowthPct).toFixed(2)}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-3)" }}>
+            Yatırılan <b style={{ fontFamily: "var(--font-m)", color: "var(--text-2)" }}>₺{fmt(netDeposited)}</b>
+            {" → "}toplam varlık <b style={{ fontFamily: "var(--font-m)", color: "var(--text-2)" }}>₺{fmt(totalAssets)}</b>
+          </div>
+        </>
+      ) : (
+        <div style={{ fontSize: 12, color: "var(--text-3)" }}>
+          Getiri hesabı için önce Portföy sayfasından nakit yatırın.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatCell({ label, value, sub, up, delay }) {
   return (
     <div className="fade" style={{
       animationDelay: `${delay}ms`, minWidth: 0,
       background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10,
-      padding: "20px 22px", position: "relative", overflow: "hidden",
+      padding: "16px 18px",
     }}>
-      <div style={{
-        position: "absolute", top: 0, left: 0, right: 0, height: 3,
-        background: up === true
-          ? "linear-gradient(90deg,var(--green),transparent)"
-          : up === false
-          ? "linear-gradient(90deg,var(--red),transparent)"
-          : "linear-gradient(90deg,var(--accent),transparent)",
-        opacity: 0.5,
-      }}/>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.07em", color: "var(--text-3)", textTransform: "uppercase" }}>
-          {label}
-        </span>
-        <span style={{
-          width: 32, height: 32, borderRadius: 8, fontSize: 16,
-          background: up === true ? "var(--green-bg)" : up === false ? "var(--red-bg)" : "var(--accent-bg)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }}>{icon}</span>
+      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", color: "var(--text-3)", textTransform: "uppercase", marginBottom: 8 }}>
+        {label}
       </div>
-      <div style={{ color: "var(--text-1)", marginBottom: 8 }}>
-        {value}
-      </div>
-      <div style={{
-        display: "inline-flex", alignItems: "center", gap: 3,
-        padding: "2px 8px", borderRadius: 20, fontSize: 11,
-        fontFamily: "var(--font-m)", fontWeight: 500,
-        color: up === true ? "var(--green)" : up === false ? "var(--red)" : "var(--text-2)",
-        background: up === true ? "var(--green-bg)" : up === false ? "var(--red-bg)" : "var(--bg)",
-        border: `1px solid ${up === true ? "var(--green)" : up === false ? "var(--red)" : "var(--border)"}`,
-      }}>
-        {up === true && "▲ "}{up === false && "▼ "}{sub}
-      </div>
+      <div style={{ marginBottom: 4 }}>{value}</div>
+      {sub && (
+        <div style={{
+          fontSize: 11, fontFamily: "var(--font-m)", fontWeight: 500,
+          color: up === true ? "var(--green)" : up === false ? "var(--red)" : "var(--text-3)",
+        }}>
+          {up === true && "▲ "}{up === false && "▼ "}{sub}
+        </div>
+      )}
     </div>
   );
 }
@@ -219,17 +253,25 @@ export default function OverviewPage() {
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <style>{OVERVIEW_STYLES}</style>
 
-      {/* KPI Satırı */}
+      {/* Kahraman blok + sessiz istatistikler */}
       <div className="kpi-row">
         {portLoading || posLoading ? (
-          [0,1,2,3].map(i => <LoadingCard key={i} height={110} />)
+          <>
+            <LoadingCard height={170} />
+            <div className="stat-grid">{[0,1,2,3].map(i => <LoadingCard key={i} height={78} />)}</div>
+          </>
         ) : (
           <>
-            <KpiCard label="Portföy Değeri"     value={<Money value={totalValue} />}                    sub={`${posCount} pozisyon`}                             up={null}               icon="💼" delay={0}   />
-            <KpiCard label="Net Getiri"         value={<Money value={netGrowth} sign />}                 sub={netDeposited > 0 ? `${netGrowthPct >= 0 ? "+" : ""}${netGrowthPct.toFixed(2)}%` : "Henüz nakit yatırılmadı"} up={netGrowth >= 0} icon="💰" delay={40}  />
-            <KpiCard label="Günlük K/Z"         value={<Money value={dailyPnl} sign />}                  sub={`${dailyPct >= 0 ? "+" : ""}${dailyPct}%`}          up={dailyPnl >= 0}      icon="📈" delay={80}  />
-            <KpiCard label="Gerçekleşmemiş K/Z" value={<Money value={unrealizedPnl} sign />}             sub={`${unrealizedPct >= 0 ? "+" : ""}${unrealizedPct}%`} up={unrealizedPnl >= 0} icon="🎯" delay={160} />
-            <KpiCard label="Açık Pozisyon"      value={<span style={{ fontFamily: "var(--font-d)", fontSize: 26 }}>{posCount}</span>} sub={`${sectorData.length} sektör`} up={null} icon="📊" delay={240} />
+            <HeroCard
+              netGrowth={netGrowth} netGrowthPct={netGrowthPct}
+              netDeposited={netDeposited} totalAssets={totalAssets}
+            />
+            <div className="stat-grid">
+              <StatCell label="Portföy Değeri"     value={<Money value={totalValue} size={20} />}     sub={`${posCount} pozisyon · ${sectorData.length} sektör`} up={null}               delay={60}  />
+              <StatCell label="Nakit Bakiye"       value={<Money value={cashBalance} size={20} />}    sub="alım gücü"                                            up={null}               delay={120} />
+              <StatCell label="Günlük K/Z"         value={<Money value={dailyPnl} sign size={20} />}  sub={`%${Math.abs(Number(dailyPct)).toFixed(2)}`}          up={dailyPnl >= 0}      delay={180} />
+              <StatCell label="Gerçekleşmemiş K/Z" value={<Money value={unrealizedPnl} sign size={20} />} sub={`%${Math.abs(Number(unrealizedPct)).toFixed(2)}`} up={unrealizedPnl >= 0} delay={240} />
+            </div>
           </>
         )}
       </div>
@@ -303,8 +345,8 @@ export default function OverviewPage() {
       {/* Kazanan / Kaybeden */}
       <div className="gainers-row">
         {[
-          { title: "En Çok Kazanan", list: gainers, up: true  },
-          { title: "En Çok Kaybeden", list: losers, up: false },
+          { title: "Piyasada En Çok Kazanan", list: gainers, up: true  },
+          { title: "Piyasada En Çok Kaybeden", list: losers, up: false },
         ].map(({ title, list, up }) => (
           <div key={title} className="fade" style={{
             animationDelay: "480ms", background: "var(--surface)",

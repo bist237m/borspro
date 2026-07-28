@@ -29,6 +29,50 @@ const NewBadge = () => (
   }}>YENİ</span>
 );
 
+// ── Filtre kartı görselleştirmeleri ─────────────────────────
+function WinRateBar({ rate }) {
+  const pct = Math.max(0, Math.min(100, Number(rate) || 0));
+  return (
+    <div title={`Kazanma oranı: %${pct}`} style={{ height: 5, borderRadius: 3, background: "var(--red-bg)", overflow: "hidden", margin: "2px 0 10px" }}>
+      <div style={{ width: `${pct}%`, height: "100%", background: "var(--green)", borderRadius: 3 }} />
+    </div>
+  );
+}
+
+// %5 → %10 → %20 → %30 kilometre taşlarına ulaşan hisse sayısı.
+// %5 ve %10 sayıları item listesinden türetilir (API ayrıca vermiyor),
+// %20 ve %30 API'nin hazır alanlarından gelir.
+function MilestoneFunnel({ s }) {
+  const total = Number(s.total) || 0;
+  if (!total) return null;
+  const fromItems = (key) => (s.items?.length ? s.items.filter(i => i[key] != null).length : null);
+  const steps = [
+    { label: "+%5",  n: fromItems("days_to_5") },
+    { label: "+%10", n: fromItems("days_to_10") },
+    { label: "+%20", n: s.reached_20 ?? fromItems("days_to_20") },
+    { label: "+%30", n: s.reached_30 ?? fromItems("days_to_30") },
+  ];
+  return (
+    <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+      {steps.map(st => {
+        const n = st.n == null ? null : Number(st.n);
+        const pct = n == null ? 0 : Math.round((n / total) * 100);
+        return (
+          <div key={st.label} style={{ flex: "1 1 90px", minWidth: 80 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 3 }}>
+              <span style={{ color: "var(--text-3)", fontWeight: 600 }}>{st.label}</span>
+              <span style={{ fontFamily: "var(--font-m)", color: "var(--text-2)" }}>{n == null ? "—" : `${n}/${total}`}</span>
+            </div>
+            <div style={{ height: 4, borderRadius: 2, background: "var(--bg)", border: "1px solid var(--border)", overflow: "hidden" }}>
+              <div style={{ width: `${pct}%`, height: "100%", background: "var(--accent)", borderRadius: 2 }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function Spinner() {
   return (
     <div style={{ height: 140, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
@@ -280,14 +324,14 @@ function FilterPerformanceSection() {
                     }}>%{s.win_rate} kazanma oranı</span>
                   </div>
                   <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 10 }}>{FILTER_DEFINITIONS[s.filter_code]}</div>
+                  <WinRateBar rate={s.win_rate} />
                   <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 12 }}>
                     <div><span style={{ color: "var(--text-3)" }}>Toplam örnek: </span><b style={{ fontFamily: "var(--font-m)" }}>{s.total}</b></div>
                     <div><span style={{ color: "var(--text-3)" }}>Ort. getiri: </span><b style={{ fontFamily: "var(--font-m)", color: s.avg_change_pct >= 0 ? "var(--green)" : "var(--red)" }}>{s.avg_change_pct >= 0 ? "+" : ""}{fmt(s.avg_change_pct)}%</b></div>
                     <div><span style={{ color: "var(--text-3)" }}>%5'e ort. gün: </span><b style={{ fontFamily: "var(--font-m)" }}>{s.avg_days_to_5 != null ? fmt(s.avg_days_to_5, 1) : "—"}</b></div>
                     <div><span style={{ color: "var(--text-3)" }}>%10'a ort. gün: </span><b style={{ fontFamily: "var(--font-m)" }}>{s.avg_days_to_10 != null ? fmt(s.avg_days_to_10, 1) : "—"}</b></div>
-                    <div><span style={{ color: "var(--text-3)" }}>%20'ye ulaşan: </span><b style={{ fontFamily: "var(--font-m)" }}>{s.reached_20}/{s.total}</b></div>
-                    <div><span style={{ color: "var(--text-3)" }}>%30'a ulaşan: </span><b style={{ fontFamily: "var(--font-m)" }}>{s.reached_30}/{s.total}</b></div>
                   </div>
+                  <MilestoneFunnel s={s} />
                 </div>
 
                 {isOpen && (
@@ -598,20 +642,52 @@ function AiCommentaryHistorySection() {
 }
 
 // ── ANA SAYFA ──────────────────────────────────────────────
+// Yapışkan bölüm navigasyonu — 8 kartlık uzun sayfada kaybolmadan gezinmek için.
+const SECTIONS = [
+  { id: "sec-portfoy",     label: "Portföy" },
+  { id: "sec-islemler",    label: "İşlemler" },
+  { id: "sec-nakit",       label: "Nakit Akışı" },
+  { id: "sec-filtreler",   label: "Filtre Performansı" },
+  { id: "sec-ek-filtre",   label: "Ek Filtreler" },
+  { id: "sec-vergi",       label: "Vergi / K-Z" },
+  { id: "sec-ai-perf",     label: "AI İsabet" },
+  { id: "sec-ai-gecmis",   label: "AI Geçmişi" },
+];
+
+function SectionNav() {
+  const scrollTo = (id) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  return (
+    <div style={{
+      position: "sticky", top: 0, zIndex: 5,
+      display: "flex", gap: 6, flexWrap: "wrap", padding: "10px 0",
+      background: "var(--bg)", borderBottom: "1px solid var(--border)",
+    }}>
+      {SECTIONS.map(s => (
+        <button key={s.id} onClick={() => scrollTo(s.id)} style={{
+          padding: "5px 12px", borderRadius: 20, border: "1px solid var(--border)",
+          background: "var(--surface)", color: "var(--text-2)",
+          fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+        }}>{s.label}</button>
+      ))}
+    </div>
+  );
+}
+
 export default function ReportsPage() {
   const { data: portList } = useApi(() => portApi.list(), []);
   const defaultPort = portList?.find(p => p.is_default) || portList?.[0];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <PortfolioPerformanceSection portfolioId={defaultPort?.id} />
-      <TransactionHistorySection portfolioId={defaultPort?.id} />
-      <CashFlowSection portfolioId={defaultPort?.id} />
-      <FilterPerformanceSection />
-      <ExtraFilterTrackingSection />
-      <TaxSummarySection />
-      <AiPerformanceSection />
-      <AiCommentaryHistorySection />
+      <SectionNav />
+      <section id="sec-portfoy" style={{ scrollMarginTop: 58 }}><PortfolioPerformanceSection portfolioId={defaultPort?.id} /></section>
+      <section id="sec-islemler" style={{ scrollMarginTop: 58 }}><TransactionHistorySection portfolioId={defaultPort?.id} /></section>
+      <section id="sec-nakit" style={{ scrollMarginTop: 58 }}><CashFlowSection portfolioId={defaultPort?.id} /></section>
+      <section id="sec-filtreler" style={{ scrollMarginTop: 58 }}><FilterPerformanceSection /></section>
+      <section id="sec-ek-filtre" style={{ scrollMarginTop: 58 }}><ExtraFilterTrackingSection /></section>
+      <section id="sec-vergi" style={{ scrollMarginTop: 58 }}><TaxSummarySection /></section>
+      <section id="sec-ai-perf" style={{ scrollMarginTop: 58 }}><AiPerformanceSection /></section>
+      <section id="sec-ai-gecmis" style={{ scrollMarginTop: 58 }}><AiCommentaryHistorySection /></section>
     </div>
   );
 }
