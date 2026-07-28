@@ -2,6 +2,7 @@
 # PostgreSQL (Supabase) bağlantı yardımcıları — Node'daki db.js'in Python karşılığı.
 
 import os
+import atexit
 import psycopg2
 import psycopg2.extras
 from psycopg2 import pool         # YENİ EKLENDİ
@@ -10,7 +11,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DATABASE_URL = os.environ["DATABASE_URL"]
-db_pool = pool.ThreadedConnectionPool(1, 20, dsn=DATABASE_URL)
+
+# ÖNEMLİ: Supabase'in "session mode" pooler'ı toplamda 15 istemciyle sınırlı
+# (EMAXCONNSESSION hatası). Eskiden burada max=20 idi — tek başına pooler
+# limitini aşıyordu, üstelik script sonunda bağlantılar hiç kapatılmıyordu
+# (arka arkaya birkaç GitHub Actions çalışması + Node.js API aynı anda birikince
+# limit doluyordu). Şimdi hem daha düşük bir tavan hem de çıkışta temiz kapama var.
+db_pool = pool.ThreadedConnectionPool(1, 5, dsn=DATABASE_URL)
+atexit.register(db_pool.closeall)
 
 
 @contextmanager
