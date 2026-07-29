@@ -2,36 +2,48 @@ name: BIST Tarayıcı
 
 on:
   schedule:
-    # Piyasa saatlerinde (10:00-16:30) her 30 dakikada bir — sadece fiyat güncelleme, hızlı
-    - cron: '*/30 10-16 * * 1-5'
+    # --- SYNC (09:30 - 18:30 arası her 15 dakikada bir fiyat güncelleme) ---
+    - cron: '30,45 9 * * 1-5'
       timezone: 'Europe/Istanbul'
-    # Her iş günü 17:25 TRT — kapanışa yakın fiyat + ana filtre taraması (sync + scan)
-    - cron: '25 17 * * 1-5'
+    - cron: '*/15 10-17 * * 1-5'
       timezone: 'Europe/Istanbul'
-    # Piyasa saatlerinde 2 saatte bir (10-16 arası) — Filtre 5/6 (4h/2h/30m/1d/1wk zaman dilimleri)
+    - cron: '0,15,30 18 * * 1-5'
+      timezone: 'Europe/Istanbul'
+
+    # --- SCAN (09:55'te başlar, 10:20'den 18:20'ye kadar her 30 dakikada bir: :20 ve :50) ---
+    - cron: '55 9 * * 1-5'
+      timezone: 'Europe/Istanbul'
+    - cron: '20,50 10-17 * * 1-5'
+      timezone: 'Europe/Istanbul'
+    - cron: '20 18 * * 1-5'
+      timezone: 'Europe/Istanbul'
+
+    # --- DİĞER PERİYODİK GÖREVLER ---
+    # Piyasa saatlerinde 2 saatte bir (10-16 arası) — Filtre 5/6
     - cron: '0 10-16/2 * * 1-5'
       timezone: 'Europe/Istanbul'
-    # Salı-Cumartesi 02:00 TRT — bir önceki iş gününün geçmiş verisini çek (piyasa kapalıyken)
+    # Salı-Cumartesi 02:00 TRT — Geçmiş veri
     - cron: '0 2 * * 2-6'
       timezone: 'Europe/Istanbul'
-    # Her iş günü 08:00 TRT — piyasa açılmadan önce temel+teknik veri (TradingView + İş Yatırım)
+    # Her iş günü 08:00 TRT — Temel + teknik veri (TradingView + İş Yatırım)
     - cron: '0 8 * * 1-5'
       timezone: 'Europe/Istanbul'
     # Her gün 4 saatte bir — KAP haberleri
     - cron: '0 */4 * * *'
       timezone: 'Europe/Istanbul'
-    # Her Pazartesi 04:00 TRT — İş Yatırım kriter listesi (nadiren değişir, haftalık yeterli)
+    # Her Pazartesi 04:00 TRT — İş Yatırım kriter listesi
     - cron: '0 4 * * 1'
       timezone: 'Europe/Istanbul'
-    # Her ayın 1'i 05:00 TRT — bilanço verisi (çeyreklik güncellendiği için sık gerekmiyor)
+    # Her ayın 1'i 05:00 TRT — Bilanço verisi
     - cron: '0 5 1 * *'
       timezone: 'Europe/Istanbul'
-    # Her ayın 2'si 05:00 TRT — sektör ve endeks üyeliği (nadiren değişir)
+    # Her ayın 2'si 05:00 TRT — Sektör ve endeks üyeliği
     - cron: '0 5 2 * *'
       timezone: 'Europe/Istanbul'
-    # Her Pazar 06:00 TRT — sermaye artırımı/temettü takvimi (piyasa kapalıyken, yaklaşan olayları yakalamak için haftalık)
+    # Her Pazar 06:00 TRT — Sermaye artırımı / temettü takvimi
     - cron: '0 6 * * 0'
       timezone: 'Europe/Istanbul'
+
   workflow_dispatch:
     inputs:
       action:
@@ -52,8 +64,6 @@ on:
           - sector_index  # sektör ve endeks üyeliği
           - corporate_actions # sermaye artırımı / temettü takvimi
 
-# Aynı anda birden fazla çalışma DB'ye eşzamanlı yazmasın diye kuyruğa alınır
-# (iptal etmez, sadece sıraya sokar — cancel-in-progress: false)
 concurrency:
   group: bist-tarayici
   cancel-in-progress: false
@@ -81,8 +91,8 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
             case "${{ github.event.schedule }}" in
-              '*/30 10-16 * * 1-5') ACTION="sync" ;;
-              '25 17 * * 1-5')      ACTION="full" ;;
+              '30,45 9 * * 1-5'|'*/15 10-17 * * 1-5'|'0,15,30 18 * * 1-5') ACTION="sync" ;;
+              '55 9 * * 1-5'|'20,50 10-17 * * 1-5'|'20 18 * * 1-5')        ACTION="scan" ;;
               '0 10-16/2 * * 1-5')  ACTION="extra_scan" ;;
               '0 2 * * 2-6')        ACTION="history" ;;
               '0 8 * * 1-5')        ACTION="fundamentals" ;;
