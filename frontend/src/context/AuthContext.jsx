@@ -25,8 +25,8 @@ export function AuthProvider({ children }) {
     setUser(u);
   }, []);
 
-  const register = useCallback(async (email, password, full_name) => {
-    const { token, user: u } = await authApi.register({ email, password, full_name });
+  const register = useCallback(async (email, password, full_name, kvkk_accepted) => {
+    const { token, user: u } = await authApi.register({ email, password, full_name, kvkk_accepted });
     localStorage.setItem("bp_token", token);
     setUser(u);
   }, []);

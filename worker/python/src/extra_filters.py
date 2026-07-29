@@ -62,8 +62,9 @@ def smi_series(df: pd.DataFrame, length_k=10, length_d=3, length_ema=3):
 
 
 # ── FİLTRE 5: IFT5_EMA_MACD ─────────────────────────────────
-def filter_ift5_ema_macd(symbol: str, timeframe: str, bulk_scalars: dict) -> bool:
-    df = bp.Ticker(symbol).history(period=PERIOD_MAP[timeframe], interval=TIMEFRAME_MAP[timeframe])
+def filter_ift5_ema_macd(df, symbol: str, timeframe: str, bulk_scalars: dict) -> bool:
+    """DEĞİŞTİ: Veriyi artık kendisi çekmiyor — hazır df alıyor.
+    Aynı hissenin aynı zaman dilimi verisi tarama boyunca SADECE BİR KEZ indiriliyor."""
     if df is None or len(df) < 30:
         return False
 
@@ -82,8 +83,8 @@ def filter_ift5_ema_macd(symbol: str, timeframe: str, bulk_scalars: dict) -> boo
 
 
 # ── FİLTRE 6: EMA120 ─────────────────────────────────────────
-def filter_ema120(symbol: str, timeframe: str, bulk_scalars: dict) -> bool:
-    df = bp.Ticker(symbol).history(period=PERIOD_MAP[timeframe], interval=TIMEFRAME_MAP[timeframe])
+def filter_ema120(df, symbol: str, timeframe: str, bulk_scalars: dict) -> bool:
+    """DEĞİŞTİ: Veriyi artık kendisi çekmiyor — hazır df alıyor."""
     if df is None or len(df) < 130:
         return False
 

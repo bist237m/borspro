@@ -4,6 +4,7 @@
 # ağ istekleri (yavaş kısım) aynı anda birden çok hisse için yapılıyor,
 # veritabanı yazımı ise güvenli şekilde tek tek (ana thread'de) yapılıyor.
 
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import borsapy as bp
 from db import get_connection
@@ -12,6 +13,11 @@ from custom_filters import (
     cci100_kesme, iftcci5_kesme,
     compute_snapshot_values,
 )
+from extra_filters import filter_ift5_ema_macd, filter_ema120, fetch_bulk_scalars
+
+FILTER5_TIMEFRAMES = ["4h", "1d", "1wk"]
+FILTER6_TIMEFRAMES = ["2h", "30m"]
+TF_SUFFIX = {"4h": "4H", "1d": "1D", "1wk": "1WK", "2h": "2H", "30m": "30M"}
 
 FILTERS = [
     ("HAFTALIK_1", haftalik_analiz_1, "1wk", "2y"),
@@ -134,6 +140,19 @@ def refresh_tracked_prices(cur):
     return updated
 
 
+def save_extra_result(cur, stock_id, filter_code, timeframe, result):
+    cur.execute(
+        """
+        INSERT INTO extra_filter_results (stock_id, filter_code, timeframe, result, updated_at)
+        VALUES (%s, %s, %s, %s, NOW())
+        ON CONFLICT (stock_id, filter_code, timeframe) DO UPDATE SET
+          result     = EXCLUDED.result,
+          updated_at = NOW()
+        """,
+        (stock_id, filter_code, timeframe, result),
+    )
+
+
 def save_snapshot(cur, stock_id, weekly_vals, daily_vals, filter_results):
     cur.execute(
         """
@@ -189,23 +208,43 @@ def save_snapshot(cur, stock_id, weekly_vals, daily_vals, filter_results):
     )
 
 
-def scan_one_data(symbol: str) -> dict:
-    """SADECE veri toplama — veritabanına dokunmuyor, paralel/thread-safe.
-    Ağ isteklerini (yavaş kısım) burada yapıyoruz."""
+# ── BİRLEŞİK VERİ ÇEKME ────────────────────────────────────
+# ESKİDEN: scan.py 1wk+1d çekiyordu, extra_scan.py ayrıca 4h+1d+1wk (filtre 5)
+# ve 2h+30m (filtre 6) çekiyordu — yani 1d ve 1wk verisi hisse başına İKİ KEZ
+# indiriliyordu, üstelik extra_scan seri (paralel değil) çalışıyordu.
+# ŞİMDİ: her zaman dilimi hisse başına SADECE BİR KEZ indirilir, tüm filtreler
+# (ana + ek) aynı bellekteki veriden hesaplanır.
+FETCH_SPEC = {
+    "1wk": "2y",
+    "1d":  "1y",
+    "4h":  "6mo",
+    "2h":  "3mo",
+    "30m": "1mo",
+}
+
+
+def fetch_all_timeframes(symbol: str) -> dict:
+    """Bir hisse için gereken TÜM zaman dilimlerini tek seferde indirir."""
     ticker = bp.Ticker(symbol)
+    out = {}
+    for tf, period in FETCH_SPEC.items():
+        try:
+            out[tf] = ticker.history(period=period, interval=tf)
+        except Exception:
+            out[tf] = None
+    return out
 
-    try:
-        df_w = ticker.history(period="2y", interval="1wk")
-    except Exception:
-        df_w = None
-    try:
-        df_d = ticker.history(period="1y", interval="1d")
-    except Exception:
-        df_d = None
 
+def scan_one_data(symbol: str, bulk_scalars: dict | None = None) -> dict:
+    """SADECE veri toplama + hesaplama — veritabanına dokunmuyor, thread-safe.
+    Ana filtreler ve ek filtreler (5/6) aynı indirilen veriden hesaplanır."""
+    frames = fetch_all_timeframes(symbol)
+    df_w, df_d = frames.get("1wk"), frames.get("1d")
+
+    # ── Ana filtreler ──
     filter_results = {}
     for name, func, tf, _ in FILTERS:
-        df = df_w if tf == "1wk" else df_d
+        df = frames.get(tf)
         if df is None or len(df) < 30:
             filter_results[name] = False
             continue
@@ -214,15 +253,36 @@ def scan_one_data(symbol: str) -> dict:
         except Exception:
             filter_results[name] = False
 
+    # ── Ek filtreler (5: IFT5_EMA_MACD / 6: EMA120) ──
+    # bulk_scalars verilmezse ek filtreler atlanır (sadece ana tarama modu).
+    extra_results = []   # (filter_code, timeframe, result)
+    if bulk_scalars is not None:
+        for tf in FILTER5_TIMEFRAMES:
+            try:
+                r = bool(filter_ift5_ema_macd(frames.get(tf), symbol, tf, bulk_scalars))
+            except Exception:
+                r = False
+            extra_results.append(("IFT5_EMA_MACD", tf, r))
+        for tf in FILTER6_TIMEFRAMES:
+            try:
+                r = bool(filter_ema120(frames.get(tf), symbol, tf, bulk_scalars))
+            except Exception:
+                r = False
+            extra_results.append(("EMA120", tf, r))
+
     weekly_vals = compute_snapshot_values(df_w, 9)  if df_w is not None and len(df_w) >= 30 else {}
     daily_vals  = compute_snapshot_values(df_d, 13) if df_d is not None and len(df_d) >= 30 else {}
 
     triggered = [name for name, ok in filter_results.items() if ok]
+    # Ek filtreler tracked_signals'ta ana filtrelerle karışmasın diye zaman dilimi ekli
+    triggered += [f"{code}_{TF_SUFFIX[tf]}" for code, tf, ok in extra_results if ok]
+
     current_price = daily_vals.get("price") or weekly_vals.get("price")
 
     return {
         "symbol": symbol,
         "filter_results": filter_results,
+        "extra_results": extra_results,
         "weekly_vals": weekly_vals,
         "daily_vals": daily_vals,
         "triggered": triggered,
@@ -241,8 +301,14 @@ def scan_one(cur, stock_id, symbol):
     return "signal"
 
 
-def run_full_scan():
-    results = {"total": 0, "signals": 0, "no_signal": 0, "errors": 0}
+def run_full_scan(include_extra: bool = True):
+    """Ana filtreler + (varsayılan olarak) ek filtreler TEK geçişte.
+
+    include_extra=False verilirse sadece ana filtreler çalışır (eski davranış).
+    Ek filtreler dahilken hisse başına 5 zaman dilimi indirilir; eskiden aynı iş
+    iki ayrı script'te 7 indirmeyle ve ek tarama tarafı SERİ yapılıyordu."""
+    results = {"total": 0, "signals": 0, "no_signal": 0, "errors": 0, "extra_hits": 0}
+    started = time.time()
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -250,11 +316,24 @@ def run_full_scan():
             stocks = cur.fetchall()
             symbol_to_id = {symbol: stock_id for stock_id, symbol in stocks}
             results["total"] = len(stocks)
-            print(f"🔍 Tam tarama başladı — {len(stocks)} hisse ({MAX_WORKERS} paralel işlem)")
+
+            # Ek filtrelerin ihtiyaç duyduğu ADX/EMA/MACD değerleri — TEK toplu istek.
+            bulk_scalars = None
+            if include_extra:
+                print("📡 Toplu gösterge verisi çekiliyor (ADX/EMA/MACD, tüm zaman dilimleri)...")
+                try:
+                    bulk_scalars = fetch_bulk_scalars(list(symbol_to_id.keys()))
+                    print(f"   {len(bulk_scalars)} hisse için veri geldi")
+                except Exception as err:
+                    print(f"   ⚠️  Toplu gösterge verisi alınamadı, ek filtreler atlanacak: {err}")
+                    bulk_scalars = None
+
+            mode = "ana + ek filtreler" if bulk_scalars is not None else "sadece ana filtreler"
+            print(f"🔍 Tam tarama başladı — {len(stocks)} hisse ({MAX_WORKERS} paralel, {mode})")
 
             completed = 0
             with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-                futures = {executor.submit(scan_one_data, symbol): symbol for symbol in symbol_to_id}
+                futures = {executor.submit(scan_one_data, symbol, bulk_scalars): symbol for symbol in symbol_to_id}
 
                 for future in as_completed(futures):
                     symbol = futures[future]
@@ -263,6 +342,11 @@ def run_full_scan():
                     try:
                         data = future.result()
                         save_snapshot(cur, stock_id, data["weekly_vals"], data["daily_vals"], data["filter_results"])
+
+                        for code, tf, r in data.get("extra_results", []):
+                            save_extra_result(cur, stock_id, code, tf, r)
+                            if r:
+                                results["extra_hits"] += 1
 
                         if data["triggered"] and data["current_price"] is not None:
                             save_signal(cur, stock_id, data["triggered"], data["current_price"])
@@ -278,9 +362,13 @@ def run_full_scan():
                         print(f"   ❌ {symbol}: {err}")
 
                     if completed % 20 == 0:
-                        print(f"   {completed}/{len(stocks)} tamamlandı...")
+                        elapsed = time.time() - started
+                        rate = completed / elapsed if elapsed else 0
+                        remaining = (len(stocks) - completed) / rate if rate else 0
+                        print(f"   {completed}/{len(stocks)} tamamlandı — tahmini kalan {remaining/60:.1f} dk")
 
-    print(f"\n✅ Tarama tamamlandı: {results}")
+    results["duration_sec"] = round(time.time() - started, 1)
+    print(f"\n✅ Tarama tamamlandı ({results['duration_sec']/60:.1f} dk): {results}")
     return results
 
 

@@ -21,37 +21,6 @@ const fmtDate = (d) => {
   return date.toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric" });
 };
 
-// ── Kronoloji yardımcıları ──────────────────────────────────
-// Sinyal tabloları "yeni ne yakalandı?" sorusuna cevap verir; bu yüzden
-// tarihleri göreceli gösterip taze girişleri rozetle işaretliyoruz.
-const daysAgo = (d) => {
-  if (!d) return null;
-  const date = new Date(d);
-  if (isNaN(date.getTime())) return null;
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const day = new Date(date); day.setHours(0, 0, 0, 0);
-  return Math.round((today - day) / 86400000);
-};
-const relDate = (d) => {
-  const n = daysAgo(d);
-  if (n == null) return "—";
-  if (n <= 0) return "Bugün";
-  if (n === 1) return "Dün";
-  if (n < 7)  return `${n} gün önce`;
-  if (n < 30) return `${Math.floor(n / 7)} hafta önce`;
-  return new Date(d).toLocaleDateString("tr-TR", { day: "2-digit", month: "short", year: "2-digit" });
-};
-const isNewEntry = (d) => { const n = daysAgo(d); return n != null && n <= 1; };
-const byEntryDateDesc = (a, b) => new Date(b.entry_date || 0) - new Date(a.entry_date || 0);
-
-const NewBadge = () => (
-  <span style={{
-    fontSize: 9, fontWeight: 700, letterSpacing: "0.05em",
-    padding: "1px 6px", borderRadius: 4, marginLeft: 6, verticalAlign: "middle",
-    background: "var(--accent)", color: "#fff",
-  }}>YENİ</span>
-);
-
 const PRESETS = [
   { id:"oversold",  label:"🔵 Aşırı Satım",    desc:"RSI < 30",        filters:{ rsi_max:"30" } },
   { id:"overbought",label:"🔴 Aşırı Alım",     desc:"RSI > 70",        filters:{ rsi_min:"70" } },
@@ -523,6 +492,48 @@ function StockDetailModal({ symbol, onClose }) {
 
 // ── EK FİLTRELERE GİREN HİSSELER ────────────────────────────
 const EXTRA_FILTER_LABELS = { IFT5_EMA_MACD: "IFT5-EMA-MACD", EMA120: "EMA120" };
+const EXTRA_FILTER_DEFINITIONS = {
+  IFT5_EMA_MACD: "IFTCCI5 0.5'i yukarı keser + fiyat EMA21'i yukarı keser + MACD sinyal çizgisinin üzerinde (4 saatlik, günlük ve haftalıkta izlenir)",
+  EMA120:        "Fiyat EMA100'ü yukarı keser + SMI negatiften döner + EMA120 ≥ EMA100 + ADX > 20 + MACD pozitif (2 saatlik ve 30 dakikalıkta izlenir)",
+};
+
+// ── FİLTRE SÖZLÜĞÜ ───────────────────────────────────────────
+// Tarayıcıda görünen tüm sinyal kodlarının (ana + ek) tek listesi —
+// FILTER_LABELS/FILTER_DEFINITIONS zaten constants/filterDefinitions.js'te
+// merkezi tanımlı, burada ona ek filtrelerin tanımını ekleyip birleştiriyoruz.
+const GLOSSARY = [
+  ...Object.keys(FILTER_LABELS).map(key => ({
+    code: key, label: FILTER_LABELS[key], def: FILTER_DEFINITIONS[key],
+  })),
+  ...Object.keys(EXTRA_FILTER_LABELS).map(key => ({
+    code: key, label: EXTRA_FILTER_LABELS[key], def: EXTRA_FILTER_DEFINITIONS[key],
+  })),
+];
+
+function FilterGlossary() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--r)", overflow: "hidden" }}>
+      <div onClick={() => setOpen(v => !v)} style={{
+        padding: "12px 16px", borderBottom: open ? "1px solid var(--border)" : "none",
+        display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer",
+      }}>
+        <span style={{ fontFamily: "var(--font-d)", fontSize: 14 }}>ℹ️ Filtre Sözlüğü</span>
+        <span style={{ fontSize: 11, color: "var(--text-3)" }}>{open ? "▲ Gizle" : "▼ Filtre kodlarının ne anlama geldiğini göster"}</span>
+      </div>
+      {open && (
+        <div style={{ padding: "16px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 16 }}>
+          {GLOSSARY.map(g => (
+            <div key={g.code}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", fontFamily: "var(--font-m)", marginBottom: 3 }}>{g.label}</div>
+              <div style={{ fontSize: 11, color: "var(--text-3)", lineHeight: 1.5 }}>{g.def || "—"}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ExtraFilterTable({ onSelectSymbol }) {
   const { data: groups, loading } = useApi(() => signalsApi.extraTracked(), []);
@@ -547,24 +558,12 @@ function ExtraFilterTable({ onSelectSymbol }) {
                 <span style={{ fontFamily: "var(--font-m)", fontSize: 11, color: "var(--accent)", marginLeft: "auto" }}>{g.stocks.length} hisse</span>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {[...g.stocks].sort(byEntryDateDesc).map(s => {
-                  const fresh = isNewEntry(s.entry_date);
-                  return (
-                    <span key={s.symbol} onClick={() => onSelectSymbol(s.symbol)}
-                      title={s.entry_date ? `Giriş: ${fmtDate(s.entry_date)}` : ""}
-                      style={{
-                        display: "inline-flex", alignItems: "center", gap: 6,
-                        fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 20,
-                        background: "var(--accent-bg)", color: "var(--accent)", cursor: "pointer",
-                        border: fresh ? "1px solid var(--accent)" : "1px solid transparent",
-                      }}>
-                      {s.symbol}
-                      <span style={{ fontSize: 10, fontWeight: 500, opacity: 0.75, fontFamily: "var(--font-m)" }}>
-                        {relDate(s.entry_date)}
-                      </span>
-                    </span>
-                  );
-                })}
+                {g.stocks.map(s => (
+                  <span key={s.symbol} onClick={() => onSelectSymbol(s.symbol)} style={{
+                    fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 20,
+                    background: "var(--accent-bg)", color: "var(--accent)", cursor: "pointer",
+                  }}>{s.symbol}</span>
+                ))}
               </div>
             </div>
           ))}
@@ -576,8 +575,6 @@ function ExtraFilterTable({ onSelectSymbol }) {
 
 // ── FİLTREYE GİREN HİSSELER TABLOSU ─────────────────────────
 function TrackedTable({ list, loading, onSelectSymbol }) {
-  // En yeni sinyal en üstte — bu tablonun işi "yeni ne yakalandı" göstermek.
-  const sortedList = [...(list || [])].sort(byEntryDateDesc);
   return (
     <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--r)" }}>
       <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -604,7 +601,7 @@ function TrackedTable({ list, loading, onSelectSymbol }) {
               </tr>
             </thead>
             <tbody>
-              {sortedList.map(row => {
+              {list.map(row => {
                 const up = Number(row.change_pct) >= 0;
                 return (
                   <tr key={row.id} style={{ borderBottom: "1px solid var(--border)", cursor: "pointer" }}
@@ -612,7 +609,7 @@ function TrackedTable({ list, loading, onSelectSymbol }) {
                     onMouseEnter={e => e.currentTarget.style.background = "var(--bg)"}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                     <td style={{ padding: "10px 14px" }}>
-                      <div style={{ fontWeight: 600, fontSize: 13 }}>{row.symbol}{isNewEntry(row.entry_date) && <NewBadge />}</div>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{row.symbol}</div>
                       <div style={{ fontSize: 10, color: "var(--text-3)" }}>{row.name}</div>
                     </td>
                     <td style={{ padding: "10px 14px", display: "flex", flexWrap: "wrap", gap: 4 }}>
@@ -624,8 +621,8 @@ function TrackedTable({ list, loading, onSelectSymbol }) {
                         }}>{f.label} ⓘ</span>
                       ))}
                     </td>
-                    <td title={fmtDate(row.entry_date)} style={{ padding: "10px 14px", fontSize: 12, fontFamily: "var(--font-m)", color: isNewEntry(row.entry_date) ? "var(--accent)" : "var(--text-2)", fontWeight: isNewEntry(row.entry_date) ? 600 : 400, cursor: "help" }}>
-                      {relDate(row.entry_date)}
+                    <td style={{ padding: "10px 14px", fontSize: 12, fontFamily: "var(--font-m)", color: "var(--text-2)" }}>
+                      {new Date(row.entry_date).toLocaleDateString("tr-TR", { day: "2-digit", month: "short", year: "2-digit" })}
                     </td>
                     <td style={{ padding: "10px 14px", fontSize: 12, fontFamily: "var(--font-m)" }}>₺{fmt(row.entry_price)}</td>
                     <td style={{ padding: "10px 14px", fontSize: 12, fontFamily: "var(--font-m)", fontWeight: 600 }}>₺{fmt(row.current_price)}</td>
@@ -649,8 +646,9 @@ function TrackedTable({ list, loading, onSelectSymbol }) {
   );
 }
 
-export default function ScreenerPage() {
+export default function ScreenerPage({ search = "", onSearchChange } = {}) {
   const [filters,      setFilters]    = useState({});
+  const setSearch = onSearchChange || (() => {}); // App.jsx dışında (örn. test) kullanılırsa sessizce yut
   const [sortBy,       setSortBy]     = useState("symbol");
   const [sortDir,      setSortDir]    = useState("asc");
   const [activePreset, setPreset]     = useState(null);
@@ -670,7 +668,9 @@ export default function ScreenerPage() {
 
   const results = useMemo(() => {
     if (!allStocks) return [];
+    const q = search.trim().toLocaleLowerCase("tr");
     return allStocks.filter(s => {
+      if (q && !(s.symbol?.toLocaleLowerCase("tr").includes(q) || s.name?.toLocaleLowerCase("tr").includes(q))) return false;
       const price = Number(s.price      || 0);
       const chg   = Number(s.change_pct || 0);
       const vol   = Number(s.volume     || 0);
@@ -690,7 +690,7 @@ export default function ScreenerPage() {
       if (typeof vb === "string") vb = vb.toLowerCase();
       return sortDir === "asc" ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
     });
-  }, [allStocks, filters, sortBy, sortDir]);
+  }, [allStocks, filters, search, sortBy, sortDir]);
 
   function setSort(col) {
     if (sortBy === col) setSortDir(d => d === "asc" ? "desc" : "asc");
@@ -771,46 +771,35 @@ export default function ScreenerPage() {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 4 }}>
-        {[
-          { id: "all",     label: "Tüm Hisseler" },
-          { id: "tracked", label: "Filtreye Girenler" },
-          { id: "extra",   label: "Ek Filtreye Girenler" },
-        ].map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{
-            padding: "7px 16px", borderRadius: 8,
-            border: `1px solid ${tab === t.id ? "var(--accent)" : "var(--border)"}`,
-            background: tab === t.id ? "var(--accent-bg)" : "var(--surface)",
-            color: tab === t.id ? "var(--accent)" : "var(--text-2)",
-            fontWeight: tab === t.id ? 600 : 400, fontSize: 13, cursor: "pointer",
-          }}>{t.label}</button>
-        ))}
-      </div>
-
-      {tab === "tracked" ? (
-        <TrackedTable list={trackedList} loading={trackedLoading} onSelectSymbol={setSelectedSymbol} />
-      ) : tab === "extra" ? (
-        <ExtraFilterTable onSelectSymbol={setSelectedSymbol} />
-      ) : (
-      <div style={{ display:"grid", gridTemplateColumns:panelOpen?"240px 1fr":"0 1fr", gap:panelOpen?16:0 }}>
-
-        {panelOpen && (
-          <div style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:"var(--r)", overflow:"hidden", alignSelf:"start", position:"sticky", top:0 }}>
-            <div style={{ padding:"12px 16px", borderBottom:"1px solid var(--border)", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+      {tab === "all" && (
+        <div style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:"var(--r)", overflow:"hidden" }}>
+          <div onClick={() => setPanelOpen(v => !v)} style={{
+            padding:"12px 16px", borderBottom: panelOpen ? "1px solid var(--border)" : "none",
+            display:"flex", justifyContent:"space-between", alignItems:"center", cursor:"pointer",
+          }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               <span style={{ fontFamily:"var(--font-d)", fontSize:14 }}>Filtreler</span>
               {activeFilterCount > 0 && (
-                <button onClick={() => { setFilters({}); setPreset(null); }} style={{ background:"none", border:"none", fontSize:11, color:"var(--red)", cursor:"pointer", fontWeight:600 }}>
-                  Temizle ({activeFilterCount})
-                </button>
+                <span style={{ background:"var(--accent)", color:"#fff", borderRadius:"50%", width:18, height:18, display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700 }}>{activeFilterCount}</span>
               )}
             </div>
-            <div style={{ padding:"12px 14px", display:"flex", flexDirection:"column", gap:18 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              {activeFilterCount > 0 && (
+                <button onClick={(e) => { e.stopPropagation(); setFilters({}); setPreset(null); }} style={{ background:"none", border:"none", fontSize:11, color:"var(--red)", cursor:"pointer", fontWeight:600 }}>
+                  Temizle
+                </button>
+              )}
+              <span style={{ fontSize:11, color:"var(--text-3)" }}>{panelOpen ? "▲" : "▼"}</span>
+            </div>
+          </div>
+          {panelOpen && (
+            <div style={{ padding:"14px 16px", display:"flex", flexWrap:"wrap", gap:20 }}>
               {FILTERS.map(group => (
-                <div key={group.group}>
+                <div key={group.group} style={{ flex:"1 1 200px", minWidth:180 }}>
                   <div style={{ fontSize:10, fontWeight:700, color:"var(--text-3)", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>{group.group}</div>
-                  <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                  <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
                     {group.items.map(item => (
-                      <div key={item.id}>
+                      <div key={item.id} style={{ flex:"1 1 90px", minWidth:90 }}>
                         <label style={{ fontSize:11, color:"var(--text-2)", display:"block", marginBottom:4 }}>{item.label}</label>
                         {item.type === "select" ? (
                           <select value={filters[item.id]||""} onChange={e => setFilters(f => ({...f,[item.id]:e.target.value}))}
@@ -831,24 +820,49 @@ export default function ScreenerPage() {
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          )}
+        </div>
+      )}
 
+      <div style={{ display: "flex", gap: 4 }}>
+        {[
+          { id: "all",     label: "Tüm Hisseler" },
+          { id: "tracked", label: "Filtreye Girenler" },
+          { id: "extra",   label: "Ek Filtreye Girenler" },
+        ].map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{
+            padding: "7px 16px", borderRadius: 8,
+            border: `1px solid ${tab === t.id ? "var(--accent)" : "var(--border)"}`,
+            background: tab === t.id ? "var(--accent-bg)" : "var(--surface)",
+            color: tab === t.id ? "var(--accent)" : "var(--text-2)",
+            fontWeight: tab === t.id ? 600 : 400, fontSize: 13, cursor: "pointer",
+          }}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* Filtre Sözlüğü sekmeler arasında sabit kalır — Filtreye/Ek Filtreye
+          Girenler tablolarındaki kodların ne anlama geldiğini burada okunabilir. */}
+      {tab === "tracked" ? (
+        <TrackedTable list={trackedList} loading={trackedLoading} onSelectSymbol={setSelectedSymbol} />
+      ) : tab === "extra" ? (
+        <ExtraFilterTable onSelectSymbol={setSelectedSymbol} />
+      ) : (
         <div style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:"var(--r)", overflow:"hidden" }}>
-          <div style={{ padding:"12px 16px", borderBottom:"1px solid var(--border)", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <div style={{ padding:"12px 16px", borderBottom:"1px solid var(--border)", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10 }}>
             <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-              <button onClick={() => setPanelOpen(v => !v)} style={{ background:"var(--bg)", border:"1px solid var(--border)", borderRadius:7, padding:"5px 10px", fontSize:12, color:"var(--text-2)", cursor:"pointer" }}>
-                {panelOpen?"◀ Gizle":"▶ Filtreler"}
-                {!panelOpen && activeFilterCount > 0 && (
-                  <span style={{ marginLeft:6, background:"var(--accent)", color:"#fff", borderRadius:"50%", width:16, height:16, display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:700 }}>{activeFilterCount}</span>
-                )}
-              </button>
               <span style={{ fontFamily:"var(--font-d)", fontSize:14 }}>Sonuçlar</span>
               <span style={{ fontFamily:"var(--font-m)", fontSize:11, background:"var(--accent-bg)", color:"var(--accent)", padding:"2px 8px", borderRadius:20, fontWeight:600 }}>
                 {results.length} hisse
               </span>
             </div>
-            <span style={{ fontSize:11, color:"var(--text-3)", fontFamily:"var(--font-m)" }}>{sortBy} {sortDir==="asc"?"▲":"▼"}</span>
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Sembol veya şirket ara..."
+                style={{ padding:"6px 12px", borderRadius:20, border:"1px solid var(--border)", background:"var(--bg)", fontSize:12, fontFamily:"var(--font)", outline:"none", width:200 }}
+                onFocus={e => e.target.style.borderColor="var(--accent)"}
+                onBlur={e  => e.target.style.borderColor="var(--border)"}
+              />
+              <span style={{ fontSize:11, color:"var(--text-3)", fontFamily:"var(--font-m)" }}>{sortBy} {sortDir==="asc"?"▲":"▼"}</span>
+            </div>
           </div>
 
           {loading ? <Spinner /> : results.length === 0 ? (
@@ -936,8 +950,10 @@ export default function ScreenerPage() {
             </>
           )}
         </div>
-      </div>
-      )}
+        )}
+
+      {/* Filtre Sözlüğü — sekme fark etmeksizin sayfanın en altında, tam genişlikte */}
+      <FilterGlossary />
 
       {selectedSymbol && (
         <StockDetailModal symbol={selectedSymbol} onClose={() => setSelectedSymbol(null)} />

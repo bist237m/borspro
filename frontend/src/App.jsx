@@ -1,5 +1,5 @@
 // src/App.jsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
 import { useApi } from "./hooks/useApi.js";
 import { market as marketApi } from "./api/client.js";
@@ -216,7 +216,50 @@ function Sidebar({ active, onNav, mobileOpen, onClose }) {
 // ── HEADER ─────────────────────────────────────────────────
 const fmt = (n, d = 2) => n == null ? "—" : Number(n).toLocaleString("tr-TR", { minimumFractionDigits: d, maximumFractionDigits: d });
 
-function Header({ active, onMenuClick }) {
+// ── BIST PİYASA DURUMU ──────────────────────────────────────
+// TSİ (Europe/Istanbul) saatine göre hesaplanır — kullanıcının/sunucunun
+// yerel saat dilimi ne olursa olsun her zaman doğru sonucu verir.
+// Hafta içi 10:00–18:00 açık; 09:55–10:00 ve 18:00–18:15 "karanlık oda"
+// (açılış/kapanış tek fiyat seansı); diğer tüm zamanlar kapalı.
+function getBistStatus() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Istanbul", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date());
+  const get = (type) => parts.find(p => p.type === type)?.value;
+  const weekday = get("weekday"); // "Mon".."Sun"
+  const totalMin = Number(get("hour")) * 60 + Number(get("minute"));
+  const isWeekday = !["Sat", "Sun"].includes(weekday);
+
+  const inRange = (start, end) => totalMin >= start && totalMin < end;
+
+  if (isWeekday && inRange(10 * 60, 18 * 60)) {
+    return { label: "BIST AÇIK", color: "var(--green)", bg: "var(--green-bg)" };
+  }
+  if (isWeekday && (inRange(9 * 60 + 55, 10 * 60) || inRange(18 * 60, 18 * 60 + 15))) {
+    return { label: "KARANLIK ODA", color: "#B45309", bg: "rgba(180,83,9,0.1)" };
+  }
+  return { label: "BIST KAPALI", color: "var(--text-3)", bg: "var(--bg)" };
+}
+
+function MarketStatusBadge() {
+  const [status, setStatus] = useState(getBistStatus);
+  useEffect(() => {
+    const t = setInterval(() => setStatus(getBistStatus()), 60000); // her dakika tazele
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 5,
+      background: status.bg, border: `1px solid ${status.color}`,
+      borderRadius: 20, padding: "4px 12px",
+    }}>
+      <span style={{ width: 6, height: 6, borderRadius: "50%", background: status.color, display: "inline-block" }}/>
+      <span style={{ fontFamily: "var(--font-m)", fontSize: 11, color: status.color, fontWeight: 500 }}>{status.label}</span>
+    </div>
+  );
+}
+
+function Header({ active, onMenuClick, onSearch, searchValue = "", onSearchChange }) {
   // Gerçek piyasa verisi — 15-30 dakikada bir worker'ın sync.py'si günceller
   const { data: market } = useApi(() => marketApi.ticker(), []);
 
@@ -246,24 +289,25 @@ function Header({ active, onMenuClick }) {
           <h1 className="header-title" style={{ fontFamily: "var(--font-d)", fontSize: 20, fontWeight: 400 }}>{TITLES[active]}</h1>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{
-            display: "flex", alignItems: "center", gap: 5,
-            background: "var(--green-bg)", border: "1px solid var(--green)",
-            borderRadius: 20, padding: "4px 12px",
-          }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--green)", display: "inline-block" }}/>
-            <span style={{ fontFamily: "var(--font-m)", fontSize: 11, color: "var(--green)", fontWeight: 500 }}>BIST AÇIK</span>
-          </div>
-          <div style={{
-            display: "flex", alignItems: "center", gap: 7,
-            background: "var(--bg)", border: "1px solid var(--border)",
-            borderRadius: 8, padding: "6px 12px",
-          }}>
+          <MarketStatusBadge />
+          <form onSubmit={(e) => { e.preventDefault(); if (searchValue.trim()) onSearch?.(searchValue.trim()); }}
+            style={{
+              display: "flex", alignItems: "center", gap: 7,
+              background: "var(--bg)", border: "1px solid var(--border)",
+              borderRadius: 8, padding: "6px 12px",
+            }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
             </svg>
-            <span className="header-search-text" style={{ fontFamily: "var(--font-m)", fontSize: 12, color: "var(--text-3)" }}>Hisse ara...</span>
-          </div>
+            <input
+              name="headerSearch" type="text" className="header-search-text" placeholder="Hisse ara..."
+              value={searchValue} onChange={e => onSearchChange?.(e.target.value)}
+              style={{
+                background: "none", border: "none", outline: "none",
+                fontFamily: "var(--font-m)", fontSize: 12, color: "var(--text-1)", width: 110,
+              }}
+            />
+          </form>
         </div>
       </header>
       {/* Ticker */}
@@ -306,6 +350,15 @@ function Soon({ id }) {
 function Dashboard() {
   const [active, setActive] = useState("overview");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // Header'daki arama kutusu ile Hisse Tarayıcı'nın arama kutusu ARTIK AYNI
+  // state'i paylaşıyor (screenerSearch) — biri değişince/silinince diğeri de
+  // anında güncelleniyor, eskiden olduğu gibi bağımsız iki kopya kalmıyor.
+  const [screenerSearch, setScreenerSearch] = useState("");
+
+  const handleHeaderSearch = (term) => {
+    setScreenerSearch(term);
+    setActive("screener");
+  };
 
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
@@ -320,14 +373,15 @@ function Dashboard() {
         onClose={() => setMobileNavOpen(false)}
       />
       <div className="main-content" style={{ marginLeft: "var(--sidebar-w)", flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <Header active={active} onMenuClick={() => setMobileNavOpen(true)} />
+        <Header active={active} onMenuClick={() => setMobileNavOpen(true)}
+          searchValue={screenerSearch} onSearchChange={setScreenerSearch} onSearch={handleHeaderSearch} />
         <main className="dashboard-main" style={{ flex: 1, padding: "24px 28px", overflowY: "auto" }}>
           {active === "overview"   && <OverviewPage />}
           {active === "positions"  && <PositionsPage />}
           {active === "watchlist"  && <WatchlistPage />}
           {active === "charts"     && <ChartsPage />}
           {active === "technicals" && <TechnicalsPage />}
-          {active === "screener"    && <ScreenerPage />}
+          {active === "screener"    && <ScreenerPage search={screenerSearch} onSearchChange={setScreenerSearch} />}
           {active === "settings"    && <SettingsPage />}
           {active === "reports"     && <ReportsPage />}
           {active === "sectors"     && <SectorsPage />}

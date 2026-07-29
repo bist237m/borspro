@@ -12,6 +12,71 @@ import borsapy as bp
 from tradingview_screener import Query
 from db import get_connection
 
+import concurrent.futures
+
+def fetch_isyatirim(symbols: list[str]) -> dict:
+    """İş Yatırım Screener'dan temel veri çeker.
+    
+    Tüm kriterleri otomatik olarak güvenli (maksimum 8-10'lu) gruplara böler
+    ve API'ye ThreadPoolExecutor ile PARALEL (eşzamanlı) istek atar.
+    Bu hem süreyi saniyelere indirir hem de API'nin kolon atlamasını önler.
+    """
+    ALL_CRITERIA = [
+        # Temel Alanlar
+        "pe", "pb", "roe", "float_ratio", "foreign_ratio", "ev_ebitda",
+        "net_margin", "ebitda_margin", "ev_sales", 
+        "return_1d", "return_1w", "return_1m", "dividend_yield",
+        "foreign_ratio_1w_change", "foreign_ratio_1m_change",
+        "pe_hist_avg", "ev_ebitda_hist_avg",
+        # Hedef Fiyat ve Sektör
+        "166", "target_price", "167", "338", "132", "323",
+        "364", "365", "366", "368", "369", "371",
+        # Temettü
+        "156", "157", "151", "152", "161", "162", "134", "326"
+    ]
+
+    # Kriterleri 8'erli güvenli küçük parçalara (chunk) bölüyoruz
+    CHUNK_SIZE = 8
+    chunks = [ALL_CRITERIA[i:i + CHUNK_SIZE] for i in range(0, len(ALL_CRITERIA), CHUNK_SIZE)]
+
+    frames = []
+    
+    # 5 iş parçacığı (worker) ile paralel istek atıyoruz
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_chunk = {
+            executor.submit(_run_screener, chunk, f"Grup-{i+1}"): chunk 
+            for i, chunk in enumerate(chunks)
+        }
+        
+        for future in concurrent.futures.as_completed(future_to_chunk):
+            df = future.result()
+            if df is not None and not df.empty:
+                # Gelen verinin index'ini symbol yapıyoruz
+                if "symbol" in df.columns:
+                    df.set_index("symbol", inplace=True)
+                frames.append(df)
+
+    if not frames:
+        return {}
+
+    # Parçalanmış veri setlerini symbol bazında birleştiriyoruz
+    result = {}
+    for symbol in symbols:
+        merged = {}
+        found = False
+        for d in frames:
+            if symbol in d.index:
+                found = True
+                row = d.loc[symbol]
+                if isinstance(row, pd.DataFrame):  # Tekrarlayan satır kontrolü
+                    row = row.iloc[0]
+                merged.update(row.to_dict())
+        
+        if found:
+            result[symbol] = merged
+
+    return result
+
 COLUMNS = [
     "name", "close", "market_cap_basic", "ebitda",
     "price_earnings_ttm", "price_book_fq",
@@ -37,46 +102,69 @@ def fetch_all(symbols: list[str]):
     return df
 
 
-def fetch_isyatirim(symbols: list[str]) -> dict:
-    """İş Yatırım Screener'dan PE/PB/ROE/Piyasa Değeri/Net Kar/Halka Açıklık/Yabancı Oranı çeker (TEK istek).
-    Bu alanlar KAP'a dayandığı için Türk hisselerinde TradingView'dan
-    daha güncel olabiliyor — bu yüzden save_fundamentals'ta önceliklidir."""
+def _run_screener(criteria_list, label):
+    """Verilen kriterlerle TEK bir İş Yatırım Screener isteği çalıştırır."""
     try:
         screener = bp.Screener()
-        screener.add_filter("pe", min=-9999, max=99999)
-        screener.add_filter("pb", min=-9999, max=99999)
-        screener.add_filter("roe", min=-9999, max=99999)
-        screener.add_filter("float_ratio", min=-9999, max=99999)
-        screener.add_filter("foreign_ratio", min=-9999, max=99999)
-        screener.add_filter("ev_ebitda", min=-9999, max=99999)
-        screener.add_filter("net_margin", min=-9999, max=99999)
-        screener.add_filter("ebitda_margin", min=-9999, max=99999)
-        screener.add_filter("ev_sales", min=-9999, max=99999)
-        screener.add_filter("return_1d", min=-9999, max=99999)
-        screener.add_filter("return_1w", min=-9999, max=99999)
-        screener.add_filter("return_1m", min=-9999, max=99999)
-        screener.add_filter("dividend_yield", min=-9999, max=99999)
-        screener.add_filter("foreign_ratio_1w_change", min=-9999, max=99999)
-        screener.add_filter("foreign_ratio_1m_change", min=-9999, max=99999)
-        screener.add_filter("pe_hist_avg", min=-9999, max=99999)
-        screener.add_filter("ev_ebitda_hist_avg", min=-9999, max=99999)
-        df = screener.run()
+        for c in criteria_list:
+            screener.add_filter(c, min=-9999, max=99999)
+        return screener.run()
     except Exception as err:
-        print(f"   ⚠️  İş Yatırım Screener hatası, bu alanlar TradingView değerinde kalacak: {err}")
+        print(f"   ⚠️  İş Yatırım Screener hatası ({label}): {err}")
+        return None
+
+
+def fetch_isyatirim(symbols: list[str]) -> dict:
+    """İş Yatırım Screener'dan temel veri çeker.
+
+    ÜÇ AYRI istekte çalışır (eskiden TEK istekte 36 kriterdi). Sebep: 19 yeni
+    kriter (hedef fiyat/sektör/temettü) eklendikten sonra free_float ve
+    foreign_ratio gibi ESKİ, daha önce sorunsuz çalışan alanlar bazı hisselerde
+    (GARAN, KCHOL gibi büyük/likit hisseler dahil) boş dönmeye başladı — İş
+    Yatırım'ın tek istekte bu kadar çok kriteri işlerken bazı kolonları sessizce
+    atladığı görülüyor. Kriterleri gruplara bölüp ayrı istek yapmak bu riski
+    izole ediyor: bir grup bozulsa bile diğerleri etkilenmiyor.
+    """
+    CORE_CRITERIA = [
+        "pe", "pb", "roe", "float_ratio", "foreign_ratio", "ev_ebitda",
+        "net_margin", "ebitda_margin", "ev_sales",
+        "return_1d", "return_1w", "return_1m", "dividend_yield",
+        "foreign_ratio_1w_change", "foreign_ratio_1m_change",
+        "pe_hist_avg", "ev_ebitda_hist_avg",
+    ]
+    TARGET_SECTOR_CRITERIA = [
+        "166", "target_price", "167", "338", "132", "323",   # hedef fiyat / öneri
+        "364", "365", "366", "368", "369", "371",             # sektörel karşılaştırma
+    ]
+    DIVIDEND_CRITERIA = [
+        "156", "157", "151", "152", "161", "162", "134", "326",  # temettü detayı (ID2/ID3)
+    ]
+
+    df_core   = _run_screener(CORE_CRITERIA, "temel alanlar")
+    df_target = _run_screener(TARGET_SECTOR_CRITERIA, "hedef fiyat/sektör")
+    df_div    = _run_screener(DIVIDEND_CRITERIA, "temettü detayı")
+
+    frames = [d for d in (df_core, df_target, df_div) if d is not None and not d.empty]
+    if not frames:
         return {}
 
-    if df is None or df.empty:
-        return {}
+    for d in frames:
+        d.set_index("symbol", inplace=True)
 
-    df.set_index("symbol", inplace=True)
     result = {}
     for symbol in symbols:
-        if symbol not in df.index:
-            continue
-        row = df.loc[symbol]
-        if isinstance(row, pd.DataFrame):  # aynı sembol birden fazla satırda gelirse
-            row = row.iloc[0]
-        result[symbol] = row
+        merged = {}
+        found = False
+        for d in frames:
+            if symbol not in d.index:
+                continue
+            found = True
+            row = d.loc[symbol]
+            if isinstance(row, pd.DataFrame):  # aynı sembol birden fazla satırda gelirse
+                row = row.iloc[0]
+            merged.update(row.to_dict())
+        if found:
+            result[symbol] = merged
     return result
 
 
@@ -145,6 +233,15 @@ def save_fundamentals(cur, stock_id, row, iy_row=None):
     foreign_ratio_1m_change = None
     pe_hist_avg             = None
     ev_ebitda_hist_avg      = None
+    target_price = upside_potential = prev_target_price = None
+    last_reco_date = prev_reco_date = None
+    sector_pe = sector_ev_ebitda = sector_pb = None
+    sector_pe_discount = sector_pb_discount = sector_ev_ebitda_discount = None
+    cash_dividend_yield = bonus_dividend_yield = None
+    cash_dividend_per_share = bonus_dividend_per_share = None
+    cash_payout_ratio = bonus_payout_ratio = None
+    dividend_date = None
+    total_dividend = None
     if iy_row is not None:
         iy_pe  = _safe_float_tr(iy_row.get("criteria_28"))    # F/K
         iy_pb  = _safe_float_tr(iy_row.get("criteria_30"))    # PD/DD
@@ -166,6 +263,33 @@ def save_fundamentals(cur, stock_id, row, iy_row=None):
         pe_hist_avg             = _safe_float_tr(iy_row.get("criteria_126"))  # Tarihsel Ort. F/K
         ev_ebitda_hist_avg      = _safe_float_tr(iy_row.get("criteria_128"))  # Tarihsel Ort. FD/FAVÖK
 
+        # Hedef fiyat — 166 (güncel) öncelikli, boşsa 51'e (eski/yedek) düş
+        target_price      = _safe_float_tr(iy_row.get("criteria_166"))
+        if target_price is None:
+            target_price  = _safe_float_tr(iy_row.get("criteria_51"))
+        upside_potential  = _safe_float_tr(iy_row.get("criteria_167"))
+        prev_target_price = _safe_float_tr(iy_row.get("criteria_338"))
+        last_reco_date    = iy_row.get("criteria_132") or None
+        prev_reco_date    = iy_row.get("criteria_323") or None
+
+        # Sektörel karşılaştırma — İş Yatırım'ın kendi hesapladığı iskonto yüzdeleri
+        sector_pe         = _safe_float_tr(iy_row.get("criteria_364"))
+        sector_ev_ebitda  = _safe_float_tr(iy_row.get("criteria_365"))
+        sector_pb         = _safe_float_tr(iy_row.get("criteria_366"))
+        sector_pe_discount        = _safe_float_tr(iy_row.get("criteria_368"))
+        sector_pb_discount        = _safe_float_tr(iy_row.get("criteria_369"))
+        sector_ev_ebitda_discount = _safe_float_tr(iy_row.get("criteria_371"))
+
+        # Temettü detayı — VARSAYIM: ID2=Nakit, ID3=Bedelsiz (üretimde doğrula)
+        cash_dividend_yield   = _safe_float_tr(iy_row.get("criteria_156"))
+        bonus_dividend_yield  = _safe_float_tr(iy_row.get("criteria_157"))
+        cash_dividend_per_share  = _safe_float_tr(iy_row.get("criteria_151"))
+        bonus_dividend_per_share = _safe_float_tr(iy_row.get("criteria_152"))
+        cash_payout_ratio  = _safe_float_tr(iy_row.get("criteria_161"))
+        bonus_payout_ratio = _safe_float_tr(iy_row.get("criteria_162"))
+        dividend_date      = iy_row.get("criteria_134") or None
+        total_dividend     = _safe_float_tr(iy_row.get("criteria_326"))
+
         if iy_pe  is not None: pe_ratio   = iy_pe
         if iy_pb  is not None: pb_ratio   = iy_pb
         if iy_roe is not None: roe        = iy_roe
@@ -181,8 +305,14 @@ def save_fundamentals(cur, stock_id, row, iy_row=None):
            free_float, foreign_ratio, ev_ebitda, net_margin, ebitda_margin,
            ev_sales, return_1d, return_1w, return_1m, dividend_yield,
            foreign_ratio_1w_change, foreign_ratio_1m_change, pe_hist_avg, ev_ebitda_hist_avg,
+           target_price, upside_potential, prev_target_price, last_reco_date, prev_reco_date,
+           sector_pe, sector_ev_ebitda, sector_pb,
+           sector_pe_discount, sector_pb_discount, sector_ev_ebitda_discount,
+           cash_dividend_yield, bonus_dividend_yield,
+           cash_dividend_per_share, bonus_dividend_per_share,
+           cash_payout_ratio, bonus_payout_ratio, dividend_date, total_dividend,
            updated_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
         ON CONFLICT (stock_id) DO UPDATE SET
           favok                  = EXCLUDED.favok,
           net_kar                = EXCLUDED.net_kar,
@@ -217,6 +347,25 @@ def save_fundamentals(cur, stock_id, row, iy_row=None):
           foreign_ratio_1m_change  = EXCLUDED.foreign_ratio_1m_change,
           pe_hist_avg              = EXCLUDED.pe_hist_avg,
           ev_ebitda_hist_avg       = EXCLUDED.ev_ebitda_hist_avg,
+          target_price              = EXCLUDED.target_price,
+          upside_potential           = EXCLUDED.upside_potential,
+          prev_target_price          = EXCLUDED.prev_target_price,
+          last_reco_date             = EXCLUDED.last_reco_date,
+          prev_reco_date             = EXCLUDED.prev_reco_date,
+          sector_pe                  = EXCLUDED.sector_pe,
+          sector_ev_ebitda           = EXCLUDED.sector_ev_ebitda,
+          sector_pb                  = EXCLUDED.sector_pb,
+          sector_pe_discount         = EXCLUDED.sector_pe_discount,
+          sector_pb_discount         = EXCLUDED.sector_pb_discount,
+          sector_ev_ebitda_discount  = EXCLUDED.sector_ev_ebitda_discount,
+          cash_dividend_yield        = EXCLUDED.cash_dividend_yield,
+          bonus_dividend_yield       = EXCLUDED.bonus_dividend_yield,
+          cash_dividend_per_share    = EXCLUDED.cash_dividend_per_share,
+          bonus_dividend_per_share   = EXCLUDED.bonus_dividend_per_share,
+          cash_payout_ratio          = EXCLUDED.cash_payout_ratio,
+          bonus_payout_ratio         = EXCLUDED.bonus_payout_ratio,
+          dividend_date              = EXCLUDED.dividend_date,
+          total_dividend             = EXCLUDED.total_dividend,
           updated_at             = NOW()
         """,
         (stock_id, favok, net_kar, pe_ratio, pb_ratio, market_cap, year_high, year_low,
@@ -224,7 +373,13 @@ def save_fundamentals(cur, stock_id, row, iy_row=None):
          rsi, sma50, volume, avg_vol10, pivot_s1, pivot_r1, macd_line, macd_sig,
          free_float, foreign_rate, ev_ebitda, net_margin, ebitda_margin,
          ev_sales, return_1d, return_1w, return_1m, dividend_yield,
-         foreign_ratio_1w_change, foreign_ratio_1m_change, pe_hist_avg, ev_ebitda_hist_avg),
+         foreign_ratio_1w_change, foreign_ratio_1m_change, pe_hist_avg, ev_ebitda_hist_avg,
+         target_price, upside_potential, prev_target_price, last_reco_date, prev_reco_date,
+         sector_pe, sector_ev_ebitda, sector_pb,
+         sector_pe_discount, sector_pb_discount, sector_ev_ebitda_discount,
+         cash_dividend_yield, bonus_dividend_yield,
+         cash_dividend_per_share, bonus_dividend_per_share,
+         cash_payout_ratio, bonus_payout_ratio, dividend_date, total_dividend),
     )
 
 

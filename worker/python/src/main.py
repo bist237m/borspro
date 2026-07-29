@@ -3,9 +3,9 @@
 #
 # Kullanım:
 #   python main.py --sync            → Fiyatları hemen güncelle
-#   python main.py --scan            → Ana filtre taramasını başlat
+#   python main.py --scan            → Tüm filtreleri (ana + ek) tek geçişte tara
 #   python main.py --history         → 1 yıllık geçmiş veriyi çek
-#   python main.py --extra-scan      → Filtre 5 ve 6'yı çalıştır
+#   python main.py --extra-scan      → (--scan ile aynı; geriye dönük uyumluluk)
 #   python main.py --fundamentals    → Temel+teknik veri (TradingView) + PE/PB/ROE/Piyasa Değeri/Net Kar (İş Yatırım, birleşik)
 #   python main.py --news            → KAP haberlerini çek
 #   python main.py --kriterleri      → İş Yatırım screener kriter listesini txt'e kaydet
@@ -38,10 +38,12 @@ if "--sync" in args:
 if "--history" in args:
     run_sync_history("1y")
 
+# --scan artık ana + ek filtreleri TEK geçişte çalıştırır (birleşik tarama).
+# --extra-scan aynı işi yapar; ikisi birlikte verilirse tarama iki kez koşmasın diye
+# sadece bir kez çalıştırıyoruz.
 if "--scan" in args:
     run_full_scan()
-
-if "--extra-scan" in args:
+elif "--extra-scan" in args:
     run_extra_scan()
 
 if "--fundamentals" in args:

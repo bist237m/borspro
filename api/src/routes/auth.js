@@ -9,15 +9,19 @@ const router = Router();
 // POST /api/auth/register
 router.post("/register", async (req, res, next) => {
   try {
-    const { email, password, full_name } = req.body;
+    const { email, password, full_name, kvkk_accepted } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: "E-posta ve şifre zorunludur." });
+    }
+    // KVKK Aydınlatma Metni onayı olmadan kayıt oluşturulamaz.
+    if (kvkk_accepted !== true) {
+      return res.status(400).json({ error: "Devam etmek için KVKK Aydınlatma Metni'ni onaylamanız gerekiyor." });
     }
 
     const hash = await bcrypt.hash(password, 10);
     const { rows } = await query(
-      `INSERT INTO users (email, password_hash, full_name)
-       VALUES ($1, $2, $3)
+      `INSERT INTO users (email, password_hash, full_name, kvkk_accepted_at)
+       VALUES ($1, $2, $3, NOW())
        RETURNING id, email, full_name, plan, created_at`,
       [email.toLowerCase(), hash, full_name]
     );

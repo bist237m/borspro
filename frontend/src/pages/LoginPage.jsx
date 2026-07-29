@@ -41,6 +41,53 @@ function Field({ label, type = "text", value, onChange, placeholder }) {
   );
 }
 
+// ── KVKK Aydınlatma Metni — kısa modal ──────────────────────
+// Tam metin ayrıca gizlilik-politikasi.md olarak sitede yayınlanmalı;
+// burada kayıt anında gösterilecek özet + link yeterli.
+const KVKK_SUMMARY = `
+Borsa Pro'ya kayıt olurken e-posta adresiniz ve şifreniz (şifrelenmiş olarak) saklanır.
+Uygulamayı kullandıkça oluşturduğunuz portföyler, işlemler ve izleme listeleri de
+hesabınızla ilişkilendirilerek işlenir.
+
+Verileriniz, hizmetin sağlanabilmesi için veritabanı ve barındırma sağlayıcılarımızla
+(Supabase, Vercel) paylaşılır. AI yorum özelliğini kendi API anahtarınızla kullanmayı
+tercih ederseniz, o sorgu OpenAI'a iletilir — bu özellik tamamen isteğe bağlıdır.
+
+KVKK m.11 kapsamında verilerinizin ne şekilde işlendiğini öğrenme, düzeltilmesini veya
+silinmesini talep etme hakkına sahipsiniz. Detaylı bilgi için Aydınlatma Metni'nin
+tamamını okuyabilirsiniz.
+`.trim();
+
+function KvkkModal({ onClose }) {
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(17,24,39,0.45)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 20, zIndex: 50,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: "var(--surface)", borderRadius: 14, maxWidth: 480, width: "100%",
+        maxHeight: "80vh", display: "flex", flexDirection: "column",
+        boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
+      }}>
+        <div style={{ padding: "18px 22px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontFamily: "var(--font-d)", fontSize: 17 }}>KVKK Aydınlatma Metni</span>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 18, color: "var(--text-3)", cursor: "pointer", lineHeight: 1 }}>✕</button>
+        </div>
+        <div style={{ padding: 22, overflowY: "auto", fontSize: 13, lineHeight: 1.7, color: "var(--text-2)", whiteSpace: "pre-line" }}>
+          {KVKK_SUMMARY}
+        </div>
+        <div style={{ padding: "14px 22px", borderTop: "1px solid var(--border)" }}>
+          <button onClick={onClose} style={{
+            width: "100%", padding: "10px", borderRadius: 8, border: "none",
+            background: "var(--accent)", color: "#fff", fontSize: 13, fontWeight: 600,
+          }}>Anladım</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function LoginPage() {
   const { login, register } = useAuth();
   const [mode,     setMode]     = useState("login"); // "login" | "register"
@@ -49,13 +96,19 @@ export default function LoginPage() {
   const [name,     setName]     = useState("");
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState("");
+  const [kvkkAccepted, setKvkkAccepted] = useState(false);
+  const [showKvkk, setShowKvkk] = useState(false);
 
   async function handleSubmit() {
     if (!email || !password) { setError("E-posta ve şifre zorunludur."); return; }
+    if (mode === "register" && !kvkkAccepted) {
+      setError("Devam etmek için KVKK Aydınlatma Metni'ni onaylamanız gerekiyor.");
+      return;
+    }
     setLoading(true); setError("");
     try {
       if (mode === "login") await login(email, password);
-      else                  await register(email, password, name);
+      else                  await register(email, password, name, kvkkAccepted);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -107,6 +160,22 @@ export default function LoginPage() {
             <Field label="E-Posta" type="email" value={email} onChange={setEmail} placeholder="ornek@email.com" />
             <Field label="Şifre" type="password" value={password} onChange={setPassword} placeholder="••••••••" />
 
+            {mode === "register" && (
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, color: "var(--text-2)", cursor: "pointer", lineHeight: 1.5 }}>
+                <input
+                  type="checkbox" checked={kvkkAccepted}
+                  onChange={e => setKvkkAccepted(e.target.checked)}
+                  style={{ marginTop: 2, width: 15, height: 15, flexShrink: 0, cursor: "pointer" }}
+                />
+                <span>
+                  <button type="button" onClick={(e) => { e.preventDefault(); setShowKvkk(true); }}
+                    style={{ background: "none", border: "none", padding: 0, color: "var(--accent)", fontWeight: 600, fontSize: 12.5, cursor: "pointer", textDecoration: "underline" }}>
+                    KVKK Aydınlatma Metni
+                  </button>'ni okudum, kabul ediyorum.
+                </span>
+              </label>
+            )}
+
             {error && (
               <div style={{
                 padding: "10px 14px", borderRadius: 8,
@@ -142,6 +211,7 @@ export default function LoginPage() {
           </p>
         </div>
       </div>
+      {showKvkk && <KvkkModal onClose={() => setShowKvkk(false)} />}
     </>
   );
 }

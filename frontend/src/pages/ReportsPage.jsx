@@ -598,6 +598,12 @@ function AiCommentaryHistorySection() {
                         color: parsed.tavsiye === "AL" ? "var(--green)" : parsed.tavsiye === "SAT" ? "var(--red)" : "var(--text-2)",
                       }}>{parsed.tavsiye}</span>
                     )}
+                    {parsed?.risk_seviyesi && (
+                      <span style={{
+                        fontSize: 11, fontWeight: 600, padding: "2px 10px", borderRadius: 20,
+                        background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-2)",
+                      }}>Risk: {parsed.risk_seviyesi}</span>
+                    )}
                     <span style={{ fontFamily: "var(--font-m)", fontSize: 11, color: "var(--text-3)" }}>{fmtDate(item.created_at)}</span>
                   </div>
                 </div>
@@ -606,8 +612,10 @@ function AiCommentaryHistorySection() {
                   <div style={{ borderTop: "1px solid var(--border)", background: "var(--bg)", padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
                     {[
                       { label: "Finansal Sağlık", text: parsed.finansal_saglik },
+                      { label: "Temettü ve Yabancı Takası", text: parsed.temettu_ve_takas },
                       { label: "Teknik-Temel Uyumu", text: parsed.teknik_temel_uyumu },
                       { label: "KAP Haberlerinin Etkisi", text: parsed.kap_etkisi },
+                      { label: "Bilanço Yorumu", text: parsed.bilanco_yorumu },
                     ].map((s, i) => s.text && (
                       <div key={i}>
                         <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-3)", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 3 }}>{s.label}</div>
@@ -632,6 +640,14 @@ function AiCommentaryHistorySection() {
                     )}
                   </div>
                 )}
+                {isOpen && !parsed && (
+                  <div style={{ borderTop: "1px solid var(--border)", background: "var(--bg)", padding: 14 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-3)", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 6 }}>
+                      Ham yanıt (JSON olarak ayrıştırılamadı)
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{item.response}</div>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -644,31 +660,36 @@ function AiCommentaryHistorySection() {
 // ── ANA SAYFA ──────────────────────────────────────────────
 // Yapışkan bölüm navigasyonu — 8 kartlık uzun sayfada kaybolmadan gezinmek için.
 const SECTIONS = [
-  { id: "sec-portfoy",     label: "Portföy" },
-  { id: "sec-islemler",    label: "İşlemler" },
-  { id: "sec-nakit",       label: "Nakit Akışı" },
-  { id: "sec-filtreler",   label: "Filtre Performansı" },
-  { id: "sec-ek-filtre",   label: "Ek Filtreler" },
-  { id: "sec-vergi",       label: "Vergi / K-Z" },
-  { id: "sec-ai-perf",     label: "AI İsabet" },
-  { id: "sec-ai-gecmis",   label: "AI Geçmişi" },
+  { id: "sec-portfoy",     label: "Portföy",            desc: "Getiri ve performans",        icon: "💼" },
+  { id: "sec-islemler",    label: "İşlemler",           desc: "Alım/satım geçmişi",           icon: "🧾" },
+  { id: "sec-nakit",       label: "Nakit Akışı",        desc: "Yatırma/çekme hareketleri",    icon: "💵" },
+  { id: "sec-filtreler",   label: "Filtre Performansı", desc: "Sinyal kazanma oranları",      icon: "📊" },
+  { id: "sec-ek-filtre",   label: "Ek Filtreler",       desc: "IFT5-EMA-MACD / EMA120",       icon: "🧩" },
+  { id: "sec-vergi",       label: "Vergi / K-Z",        desc: "Yıllık kâr/zarar özeti",       icon: "🧮" },
+  { id: "sec-ai-perf",     label: "AI İsabet",          desc: "Tavsiye başarı oranı",         icon: "🎯" },
+  { id: "sec-ai-gecmis",   label: "AI Geçmişi",         desc: "Geçmiş yorumlar",              icon: "🗂️" },
 ];
 
-function SectionNav() {
-  const scrollTo = (id) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+// Kart görünümlü bölüm seçici — tıklanan bölüm açılır, diğerleri kapanır
+// (eskiden hepsi alt alta açık duruyordu, nav sadece oraya kaydırıyordu).
+function SectionCards({ active, onSelect }) {
   return (
-    <div style={{
-      position: "sticky", top: 0, zIndex: 5,
-      display: "flex", gap: 6, flexWrap: "wrap", padding: "10px 0",
-      background: "var(--bg)", borderBottom: "1px solid var(--border)",
-    }}>
-      {SECTIONS.map(s => (
-        <button key={s.id} onClick={() => scrollTo(s.id)} style={{
-          padding: "5px 12px", borderRadius: 20, border: "1px solid var(--border)",
-          background: "var(--surface)", color: "var(--text-2)",
-          fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
-        }}>{s.label}</button>
-      ))}
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10 }}>
+      {SECTIONS.map(s => {
+        const isActive = active === s.id;
+        return (
+          <button key={s.id} onClick={() => onSelect(s.id)} style={{
+            display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4,
+            padding: "12px 14px", borderRadius: 10, textAlign: "left", cursor: "pointer",
+            border: `1px solid ${isActive ? "var(--accent)" : "var(--border)"}`,
+            background: isActive ? "var(--accent-bg)" : "var(--surface)",
+          }}>
+            <span style={{ fontSize: 18 }}>{s.icon}</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: isActive ? "var(--accent)" : "var(--text-1)" }}>{s.label}</span>
+            <span style={{ fontSize: 10.5, color: isActive ? "var(--accent)" : "var(--text-3)" }}>{s.desc}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -676,18 +697,20 @@ function SectionNav() {
 export default function ReportsPage() {
   const { data: portList } = useApi(() => portApi.list(), []);
   const defaultPort = portList?.find(p => p.is_default) || portList?.[0];
+  const [active, setActive] = useState(SECTIONS[0].id);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <SectionNav />
-      <section id="sec-portfoy" style={{ scrollMarginTop: 58 }}><PortfolioPerformanceSection portfolioId={defaultPort?.id} /></section>
-      <section id="sec-islemler" style={{ scrollMarginTop: 58 }}><TransactionHistorySection portfolioId={defaultPort?.id} /></section>
-      <section id="sec-nakit" style={{ scrollMarginTop: 58 }}><CashFlowSection portfolioId={defaultPort?.id} /></section>
-      <section id="sec-filtreler" style={{ scrollMarginTop: 58 }}><FilterPerformanceSection /></section>
-      <section id="sec-ek-filtre" style={{ scrollMarginTop: 58 }}><ExtraFilterTrackingSection /></section>
-      <section id="sec-vergi" style={{ scrollMarginTop: 58 }}><TaxSummarySection /></section>
-      <section id="sec-ai-perf" style={{ scrollMarginTop: 58 }}><AiPerformanceSection /></section>
-      <section id="sec-ai-gecmis" style={{ scrollMarginTop: 58 }}><AiCommentaryHistorySection /></section>
+      <SectionCards active={active} onSelect={setActive} />
+
+      {active === "sec-portfoy"   && <PortfolioPerformanceSection portfolioId={defaultPort?.id} />}
+      {active === "sec-islemler"  && <TransactionHistorySection portfolioId={defaultPort?.id} />}
+      {active === "sec-nakit"     && <CashFlowSection portfolioId={defaultPort?.id} />}
+      {active === "sec-filtreler" && <FilterPerformanceSection />}
+      {active === "sec-ek-filtre" && <ExtraFilterTrackingSection />}
+      {active === "sec-vergi"     && <TaxSummarySection />}
+      {active === "sec-ai-perf"   && <AiPerformanceSection />}
+      {active === "sec-ai-gecmis" && <AiCommentaryHistorySection />}
     </div>
   );
 }
