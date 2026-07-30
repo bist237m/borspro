@@ -492,6 +492,35 @@ function StockDetailModal({ symbol, onClose }) {
 
 // ── EK FİLTRELERE GİREN HİSSELER ────────────────────────────
 const EXTRA_FILTER_LABELS = { IFT5_EMA_MACD: "IFT5-EMA-MACD", EMA120: "EMA120" };
+
+// ── Kronoloji yardımcıları (hem Ek Filtreye Girenler hem Filtreye
+// Girenler tabloları kullanıyor) ────────────────────────────────
+const daysAgo = (d) => {
+  if (!d) return null;
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const day = new Date(date); day.setHours(0, 0, 0, 0);
+  return Math.round((today - day) / 86400000);
+};
+const relDate = (d) => {
+  const n = daysAgo(d);
+  if (n == null) return "—";
+  if (n <= 0) return "Bugün";
+  if (n === 1) return "Dün";
+  if (n < 7)  return `${n} gün önce`;
+  if (n < 30) return `${Math.floor(n / 7)} hafta önce`;
+  return new Date(d).toLocaleDateString("tr-TR", { day: "2-digit", month: "short", year: "2-digit" });
+};
+const isNewEntry = (d) => { const n = daysAgo(d); return n != null && n <= 1; };
+const byEntryDateDesc = (a, b) => new Date(b.entry_date || 0) - new Date(a.entry_date || 0);
+const NewBadge = () => (
+  <span style={{
+    fontSize: 9, fontWeight: 700, letterSpacing: "0.05em",
+    padding: "1px 6px", borderRadius: 4, marginLeft: 6, verticalAlign: "middle",
+    background: "var(--accent)", color: "#fff",
+  }}>YENİ</span>
+);
 const EXTRA_FILTER_DEFINITIONS = {
   IFT5_EMA_MACD: "IFTCCI5 0.5'i yukarı keser + fiyat EMA21'i yukarı keser + MACD sinyal çizgisinin üzerinde (4 saatlik, günlük ve haftalıkta izlenir)",
   EMA120:        "Fiyat EMA100'ü yukarı keser + SMI negatiften döner + EMA120 ≥ EMA100 + ADX > 20 + MACD pozitif (2 saatlik ve 30 dakikalıkta izlenir)",
@@ -558,12 +587,26 @@ function ExtraFilterTable({ onSelectSymbol }) {
                 <span style={{ fontFamily: "var(--font-m)", fontSize: 11, color: "var(--accent)", marginLeft: "auto" }}>{g.stocks.length} hisse</span>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {g.stocks.map(s => (
-                  <span key={s.symbol} onClick={() => onSelectSymbol(s.symbol)} style={{
-                    fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 20,
-                    background: "var(--accent-bg)", color: "var(--accent)", cursor: "pointer",
-                  }}>{s.symbol}</span>
-                ))}
+                {[...g.stocks].sort(byEntryDateDesc).map(s => {
+                  const fresh = isNewEntry(s.entry_date);
+                  return (
+                    <span key={s.symbol} onClick={() => onSelectSymbol(s.symbol)}
+                      title={s.entry_date ? `Giriş: ${new Date(s.entry_date).toLocaleDateString("tr-TR")}` : ""}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 6,
+                        fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 20,
+                        background: "var(--accent-bg)", color: "var(--accent)", cursor: "pointer",
+                        border: fresh ? "1px solid var(--accent)" : "1px solid transparent",
+                      }}>
+                      {s.symbol}
+                      {s.entry_date && (
+                        <span style={{ fontSize: 10, fontWeight: 500, opacity: 0.75, fontFamily: "var(--font-m)" }}>
+                          {relDate(s.entry_date)}
+                        </span>
+                      )}
+                    </span>
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -574,12 +617,57 @@ function ExtraFilterTable({ onSelectSymbol }) {
 }
 
 // ── FİLTREYE GİREN HİSSELER TABLOSU ─────────────────────────
+const TRACKED_SORTS = {
+  entry_desc:  { label: "En Yeni",       fn: (a, b) => new Date(b.entry_date || 0) - new Date(a.entry_date || 0) },
+  change_desc: { label: "En Çok Kazanan", fn: (a, b) => Number(b.change_pct ?? -999) - Number(a.change_pct ?? -999) },
+  change_asc:  { label: "En Çok Kaybeden",fn: (a, b) => Number(a.change_pct ?? 999)  - Number(b.change_pct ?? 999) },
+};
+
+// +%10 kilometre taşına ne kadar kaldığını gösteren mini ilerleme çubuğu —
+// giriş fiyatından bu yana kazancı, 0-10 aralığında normalize eder.
+function MilestoneBar({ changePct }) {
+  if (changePct == null) return <span style={{ fontSize: 11, color: "var(--text-3)" }}>—</span>;
+  const pct = Number(changePct);
+  const clamped = Math.max(0, Math.min(pct, 10));
+  const ratio = (clamped / 10) * 100;
+  const reached = pct >= 10;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 90 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "var(--text-3)", fontFamily: "var(--font-m)" }}>
+        <span>{reached ? "🎯 ulaşıldı" : `${pct >= 0 ? "+" : ""}${fmt(pct, 1)}%`}</span>
+        <span>%10</span>
+      </div>
+      <div style={{ height: 4, borderRadius: 2, background: "var(--bg)", border: "1px solid var(--border)", overflow: "hidden" }}>
+        <div style={{
+          width: `${pct < 0 ? 0 : ratio}%`, height: "100%", borderRadius: 2,
+          background: reached ? "var(--green)" : "var(--accent)",
+        }} />
+      </div>
+    </div>
+  );
+}
+
 function TrackedTable({ list, loading, onSelectSymbol }) {
+  const [sortMode, setSortMode] = useState("entry_desc");
+  const sortedList = [...(list || [])].sort(TRACKED_SORTS[sortMode].fn);
+
   return (
     <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--r)" }}>
-      <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontFamily: "var(--font-d)", fontSize: 15 }}>Filtreye Giren Hisseler</span>
-        <span style={{ fontFamily: "var(--font-m)", fontSize: 11, color: "var(--text-3)" }}>{list?.length || 0} hisse</span>
+      <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontFamily: "var(--font-d)", fontSize: 15 }}>Filtreye Giren Hisseler</span>
+          <span style={{ fontFamily: "var(--font-m)", fontSize: 11, color: "var(--text-3)" }}>{list?.length || 0} hisse</span>
+        </div>
+        <div style={{ display: "flex", gap: 4 }}>
+          {Object.entries(TRACKED_SORTS).map(([key, s]) => (
+            <button key={key} onClick={() => setSortMode(key)} style={{
+              padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: "pointer",
+              border: `1px solid ${sortMode === key ? "var(--accent)" : "var(--border)"}`,
+              background: sortMode === key ? "var(--accent-bg)" : "var(--bg)",
+              color: sortMode === key ? "var(--accent)" : "var(--text-2)",
+            }}>{s.label}</button>
+          ))}
+        </div>
       </div>
       {loading ? <Spinner /> : !list?.length ? (
         <div style={{ padding: 40, textAlign: "center" }}>
@@ -591,7 +679,7 @@ function TrackedTable({ list, loading, onSelectSymbol }) {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ background: "var(--bg)" }}>
-                {["Hisse","Filtre(ler)","Giriş Tarihi","Giriş Fiyatı","Güncel Fiyat","Değişim","Maks. Fiyat"].map((h,i) => (
+                {["Hisse","Filtre(ler)","Giriş","Kaç Gündür","Giriş → Güncel","Değişim","+10% Hedefe"].map((h,i) => (
                   <th key={i} style={{
                     padding: "10px 14px", textAlign: "left", fontSize: 10, fontWeight: 600,
                     color: "var(--text-3)", letterSpacing: "0.06em", textTransform: "uppercase",
@@ -601,15 +689,17 @@ function TrackedTable({ list, loading, onSelectSymbol }) {
               </tr>
             </thead>
             <tbody>
-              {list.map(row => {
+              {sortedList.map(row => {
                 const up = Number(row.change_pct) >= 0;
+                const fresh = isNewEntry(row.entry_date);
+                const held = daysAgo(row.entry_date);
                 return (
                   <tr key={row.id} style={{ borderBottom: "1px solid var(--border)", cursor: "pointer" }}
                     onClick={() => onSelectSymbol(row.symbol)}
                     onMouseEnter={e => e.currentTarget.style.background = "var(--bg)"}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                     <td style={{ padding: "10px 14px" }}>
-                      <div style={{ fontWeight: 600, fontSize: 13 }}>{row.symbol}</div>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{row.symbol}{fresh && <NewBadge />}</div>
                       <div style={{ fontSize: 10, color: "var(--text-3)" }}>{row.name}</div>
                     </td>
                     <td style={{ padding: "10px 14px", display: "flex", flexWrap: "wrap", gap: 4 }}>
@@ -621,11 +711,18 @@ function TrackedTable({ list, loading, onSelectSymbol }) {
                         }}>{f.label} ⓘ</span>
                       ))}
                     </td>
-                    <td style={{ padding: "10px 14px", fontSize: 12, fontFamily: "var(--font-m)", color: "var(--text-2)" }}>
-                      {new Date(row.entry_date).toLocaleDateString("tr-TR", { day: "2-digit", month: "short", year: "2-digit" })}
+                    <td title={new Date(row.entry_date).toLocaleDateString("tr-TR")} style={{
+                      padding: "10px 14px", fontSize: 12, fontFamily: "var(--font-m)", cursor: "help",
+                      color: fresh ? "var(--accent)" : "var(--text-2)", fontWeight: fresh ? 600 : 400,
+                    }}>
+                      {relDate(row.entry_date)}
                     </td>
-                    <td style={{ padding: "10px 14px", fontSize: 12, fontFamily: "var(--font-m)" }}>₺{fmt(row.entry_price)}</td>
-                    <td style={{ padding: "10px 14px", fontSize: 12, fontFamily: "var(--font-m)", fontWeight: 600 }}>₺{fmt(row.current_price)}</td>
+                    <td style={{ padding: "10px 14px", fontSize: 12, fontFamily: "var(--font-m)", color: "var(--text-3)" }}>
+                      {held != null ? `${held} gün` : "—"}
+                    </td>
+                    <td style={{ padding: "10px 14px", fontSize: 12, fontFamily: "var(--font-m)", whiteSpace: "nowrap" }}>
+                      ₺{fmt(row.entry_price)} <span style={{ color: "var(--text-3)" }}>→</span> <b>₺{fmt(row.current_price)}</b>
+                    </td>
                     <td style={{ padding: "10px 14px" }}>
                       <span style={{
                         fontFamily: "var(--font-m)", fontSize: 11, fontWeight: 600,
@@ -634,7 +731,9 @@ function TrackedTable({ list, loading, onSelectSymbol }) {
                         padding: "2px 8px", borderRadius: 20,
                       }}>{up ? "▲" : "▼"} {fmt(Math.abs(row.change_pct))}%</span>
                     </td>
-                    <td style={{ padding: "10px 14px", fontSize: 12, fontFamily: "var(--font-m)", color: "var(--text-2)" }}>₺{fmt(row.max_price)}</td>
+                    <td style={{ padding: "10px 14px" }}>
+                      <MilestoneBar changePct={row.change_pct} />
+                    </td>
                   </tr>
                 );
               })}
