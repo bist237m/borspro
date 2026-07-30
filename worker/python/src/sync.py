@@ -123,5 +123,71 @@ def run_sync_market_snapshot():
     print("   ✅ Piyasa şeridi güncellendi")
 
 
+def run_sync_position_quotes():
+    """SADECE açık pozisyonlardaki hisselerin fiyatını günceller.
+    574 hissenin tamamını çeken run_sync_quotes'tan FARKLI — bu, dakikada bir
+    çalıştırılabilecek kadar hafif (tipik olarak 5-15 sembol).
+    Piyasa şeridini ve takip edilen (tracked_signals) fiyatları GÜNCELLEMİYOR —
+    onlar hâlâ run_sync_quotes'un (5 dakikalık GitHub Actions) işi."""
+    symbols = query(
+        """
+        SELECT DISTINCT s.symbol
+        FROM positions p
+        JOIN stocks s ON s.id = p.stock_id
+        WHERE p.quantity > 0
+        """
+    )
+    symbol_list = [row["symbol"] for row in symbols]
+    if not symbol_list:
+        print("📡 Açık pozisyon yok, güncellenecek bir şey yok.")
+        return {"updated": 0, "errors": 0}
+
+    print(f"📡 Pozisyon fiyatları güncelleniyor — {len(symbol_list)} sembol: {', '.join(symbol_list)}")
+
+    updated, errors = 0, 0
+    for symbol in symbol_list:
+        try:
+            df = bp.Ticker(symbol).history(period="5g")
+            if df is None or len(df) == 0:
+                errors += 1
+                continue
+
+            last = df.iloc[-1]
+            prev_close = float(df.iloc[-2]["Close"]) if len(df) > 1 else float(last["Close"])
+            last_price = float(last["Close"])
+
+            execute(
+                """
+                INSERT INTO stock_quotes (stock_id, price, change_abs, change_pct, day_high, day_low, volume, quoted_at)
+                SELECT id, %s, %s, %s, %s, %s, %s, NOW()
+                FROM stocks WHERE symbol = %s
+                ON CONFLICT (stock_id) DO UPDATE SET
+                  price      = EXCLUDED.price,
+                  change_abs = EXCLUDED.change_abs,
+                  change_pct = EXCLUDED.change_pct,
+                  day_high   = EXCLUDED.day_high,
+                  day_low    = EXCLUDED.day_low,
+                  volume     = EXCLUDED.volume,
+                  quoted_at  = NOW()
+                """,
+                (
+                    last_price,
+                    last_price - prev_close,
+                    ((last_price - prev_close) / prev_close * 100) if prev_close else 0,
+                    float(last["High"]),
+                    float(last["Low"]),
+                    int(last["Volume"]) if last["Volume"] == last["Volume"] else 0,
+                    symbol,
+                ),
+            )
+            updated += 1
+        except Exception as err:
+            errors += 1
+            print(f"   ❌ {symbol}: {err}")
+
+    print(f"   ✅ Güncellenen: {updated} | Hata: {errors}")
+    return {"updated": updated, "errors": errors}
+
+
 if __name__ == "__main__":
     run_sync_quotes()

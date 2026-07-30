@@ -2,47 +2,41 @@ name: BIST Tarayıcı
 
 on:
   schedule:
-    # --- SYNC (09:30 - 18:30 arası her 15 dakikada bir fiyat güncelleme) ---
-    - cron: '30,45 9 * * 1-5'
-      timezone: 'Europe/Istanbul'
-    - cron: '*/15 10-17 * * 1-5'
-      timezone: 'Europe/Istanbul'
-    - cron: '0,15,30 18 * * 1-5'
-      timezone: 'Europe/Istanbul'
+    # TÜM SAATLER UTC — GitHub Actions'ın schedule tetikleyicisi HER ZAMAN
+    # UTC'dir. `timezone:` anahtarı GitHub'da yeni eklendi (2026 başı) ama
+    # topluluk raporlarına göre bazı hesaplarda tutarsız çalışabiliyor —
+    # bu yüzden riske girmeyip saatleri elle UTC'ye çevirdik (TSİ = UTC+3,
+    # Türkiye DST uygulamıyor, yıl boyu sabit). Yorumlardaki saat TSİ'dir.
 
-    # --- SCAN (09:55'te başlar, 10:20'den 18:20'ye kadar her 30 dakikada bir: :20 ve :50) ---
-    - cron: '55 9 * * 1-5'
-      timezone: 'Europe/Istanbul'
-    - cron: '20,50 10-17 * * 1-5'
-      timezone: 'Europe/Istanbul'
-    - cron: '20 18 * * 1-5'
-      timezone: 'Europe/Istanbul'
+    # --- SYNC (TSİ 09:30 - 18:30 arası her 15 dakikada bir fiyat güncelleme) ---
+    - cron: '30,45 6 * * 1-5'      # TSİ 09:30, 09:45
+    - cron: '*/15 7-14 * * 1-5'    # TSİ 10:00-17:45
+    - cron: '0,15,30 15 * * 1-5'   # TSİ 18:00, 18:15, 18:30
+
+    # --- SCAN (TSİ 09:55'te başlar, 10:20'den 18:20'ye kadar her 30 dakikada bir) ---
+    - cron: '55 6 * * 1-5'         # TSİ 09:55
+    - cron: '20,50 7-14 * * 1-5'   # TSİ 10:20-17:50
+    - cron: '20 15 * * 1-5'        # TSİ 18:20
 
     # --- DİĞER PERİYODİK GÖREVLER ---
-    # Piyasa saatlerinde 2 saatte bir (10-16 arası) — Filtre 5/6
-    - cron: '0 10-16/2 * * 1-5'
-      timezone: 'Europe/Istanbul'
-    # Salı-Cumartesi 02:00 TRT — Geçmiş veri
-    - cron: '0 2 * * 2-6'
-      timezone: 'Europe/Istanbul'
-    # Her iş günü 08:00 TRT — Temel + teknik veri (TradingView + İş Yatırım)
-    - cron: '0 8 * * 1-5'
-      timezone: 'Europe/Istanbul'
+    # Piyasa saatlerinde 2 saatte bir (TSİ 10-16 arası) — Filtre 5/6
+    - cron: '0 7-13/2 * * 1-5'     # TSİ 10,12,14,16
+    # Salı-Cumartesi TSİ 02:00 — Geçmiş veri
+    # DİKKAT: TSİ 02:00, bir önceki günün 23:00 UTC'sine denk gelir — bu yüzden
+    # gün aralığı da bir gün geriye kayıyor (TSİ Sal-Cmt = UTC Pzt-Cum).
+    - cron: '0 23 * * 1-5'         # TSİ Salı-Cumartesi 02:00
+    # Her iş günü TSİ 08:00 — Temel + teknik veri (TradingView + İş Yatırım)
+    - cron: '0 5 * * 1-5'          # TSİ 08:00
     # Her gün 4 saatte bir — KAP haberleri
-    - cron: '0 */4 * * *'
-      timezone: 'Europe/Istanbul'
-    # Her Pazartesi 04:00 TRT — İş Yatırım kriter listesi
-    - cron: '0 4 * * 1'
-      timezone: 'Europe/Istanbul'
-    # Her ayın 1'i 05:00 TRT — Bilanço verisi
-    - cron: '0 5 1 * *'
-      timezone: 'Europe/Istanbul'
-    # Her ayın 2'si 05:00 TRT — Sektör ve endeks üyeliği
-    - cron: '0 5 2 * *'
-      timezone: 'Europe/Istanbul'
-    # Her Pazar 06:00 TRT — Sermaye artırımı / temettü takvimi
-    - cron: '0 6 * * 0'
-      timezone: 'Europe/Istanbul'
+    - cron: '0 1,5,9,13,17,21 * * *'  # TSİ 04,08,12,16,20,00
+    # Her Pazartesi TSİ 04:00 — İş Yatırım kriter listesi
+    - cron: '0 1 * * 1'            # TSİ Pazartesi 04:00
+    # Her ayın 1'i TSİ 05:00 — Bilanço verisi
+    - cron: '0 2 1 * *'            # TSİ ayın 1'i 05:00
+    # Her ayın 2'si TSİ 05:00 — Sektör ve endeks üyeliği
+    - cron: '0 2 2 * *'            # TSİ ayın 2'si 05:00
+    # Her Pazar TSİ 06:00 — Sermaye artırımı / temettü takvimi
+    - cron: '0 3 * * 0'            # TSİ Pazar 06:00
 
   workflow_dispatch:
     inputs:
@@ -91,16 +85,16 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
             case "${{ github.event.schedule }}" in
-              '30,45 9 * * 1-5'|'*/15 10-17 * * 1-5'|'0,15,30 18 * * 1-5') ACTION="sync" ;;
-              '55 9 * * 1-5'|'20,50 10-17 * * 1-5'|'20 18 * * 1-5')        ACTION="scan" ;;
-              '0 10-16/2 * * 1-5')  ACTION="extra_scan" ;;
-              '0 2 * * 2-6')        ACTION="history" ;;
-              '0 8 * * 1-5')        ACTION="fundamentals" ;;
-              '0 */4 * * *')        ACTION="news" ;;
-              '0 4 * * 1')          ACTION="kriterleri" ;;
-              '0 5 1 * *')          ACTION="balance_sheet" ;;
-              '0 5 2 * *')          ACTION="sector_index" ;;
-              '0 6 * * 0')          ACTION="corporate_actions" ;;
+              '30,45 6 * * 1-5'|'*/15 7-14 * * 1-5'|'0,15,30 15 * * 1-5') ACTION="sync" ;;
+              '55 6 * * 1-5'|'20,50 7-14 * * 1-5'|'20 15 * * 1-5')        ACTION="scan" ;;
+              '0 7-13/2 * * 1-5')   ACTION="extra_scan" ;;
+              '0 23 * * 1-5')       ACTION="history" ;;
+              '0 5 * * 1-5')        ACTION="fundamentals" ;;
+              '0 1,5,9,13,17,21 * * *') ACTION="news" ;;
+              '0 1 * * 1')          ACTION="kriterleri" ;;
+              '0 2 1 * *')          ACTION="balance_sheet" ;;
+              '0 2 2 * *')          ACTION="sector_index" ;;
+              '0 3 * * 0')          ACTION="corporate_actions" ;;
               *)                    ACTION="full" ;;
             esac
           else
