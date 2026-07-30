@@ -9,9 +9,9 @@
 #   python main.py --fundamentals    → Temel+teknik veri (TradingView) + PE/PB/ROE/Piyasa Değeri/Net Kar (İş Yatırım, birleşik)
 #   python main.py --news            → KAP haberlerini çek
 #   python main.py --kriterleri      → İş Yatırım screener kriter listesini txt'e kaydet
-#   python main.py --balance-sheet   → Bilanço verilerini çek (dönemsel, JSON olarak saklanır)
+#   python main.py --balance-sheet   → Mali tablolar çekiliyor (bilanço+gelir tablosu+nakit akım, tek istekte)
 #   python main.py --sector-index    → Sektör ve endeks (BIST30/50/100 vb.) üyeliğini güncelle
-#   python main.py --corporate-actions → Sermaye artırımları / temettü takvimi
+#   python main.py --corporate-actions → Sermaye artırımları / temettü takvimi / yabancı oranları
 
 import sys
 from sync import run_sync_quotes
@@ -21,7 +21,7 @@ from extra_scan import run_extra_scan
 from fundamentals import run_fetch_fundamentals
 from news import run_fetch_news
 from kriterleri_bul import tum_kriterleri_kaydet
-from balance_sheet import run_fetch_balance_sheets
+from mali_tablolar import run_fetch_mali_tablolar
 from sector_index import run_sync_sector_index
 from corporate_actions import run_sync_corporate_actions
 
@@ -56,7 +56,7 @@ if "--kriterleri" in args:
     tum_kriterleri_kaydet()
 
 if "--balance-sheet" in args:
-    run_fetch_balance_sheets()
+    run_fetch_mali_tablolar()
 
 if "--sector-index" in args:
     run_sync_sector_index()

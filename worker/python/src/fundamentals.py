@@ -7,75 +7,12 @@
 # tüm alanlar (FAVÖK, 52 hafta yüksek/düşük, büyüme oranları, RSI, SMA50,
 # hacim, pivot, MACD) sadece TradingView'da var, oradan geliyor.
 
+import time
+
 import pandas as pd
 import borsapy as bp
 from tradingview_screener import Query
 from db import get_connection
-
-import concurrent.futures
-
-def fetch_isyatirim(symbols: list[str]) -> dict:
-    """İş Yatırım Screener'dan temel veri çeker.
-    
-    Tüm kriterleri otomatik olarak güvenli (maksimum 8-10'lu) gruplara böler
-    ve API'ye ThreadPoolExecutor ile PARALEL (eşzamanlı) istek atar.
-    Bu hem süreyi saniyelere indirir hem de API'nin kolon atlamasını önler.
-    """
-    ALL_CRITERIA = [
-        # Temel Alanlar
-        "pe", "pb", "roe", "float_ratio", "foreign_ratio", "ev_ebitda",
-        "net_margin", "ebitda_margin", "ev_sales", 
-        "return_1d", "return_1w", "return_1m", "dividend_yield",
-        "foreign_ratio_1w_change", "foreign_ratio_1m_change",
-        "pe_hist_avg", "ev_ebitda_hist_avg",
-        # Hedef Fiyat ve Sektör
-        "166", "target_price", "167", "338", "132", "323",
-        "364", "365", "366", "368", "369", "371",
-        # Temettü
-        "156", "157", "151", "152", "161", "162", "134", "326"
-    ]
-
-    # Kriterleri 8'erli güvenli küçük parçalara (chunk) bölüyoruz
-    CHUNK_SIZE = 8
-    chunks = [ALL_CRITERIA[i:i + CHUNK_SIZE] for i in range(0, len(ALL_CRITERIA), CHUNK_SIZE)]
-
-    frames = []
-    
-    # 5 iş parçacığı (worker) ile paralel istek atıyoruz
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        future_to_chunk = {
-            executor.submit(_run_screener, chunk, f"Grup-{i+1}"): chunk 
-            for i, chunk in enumerate(chunks)
-        }
-        
-        for future in concurrent.futures.as_completed(future_to_chunk):
-            df = future.result()
-            if df is not None and not df.empty:
-                # Gelen verinin index'ini symbol yapıyoruz
-                if "symbol" in df.columns:
-                    df.set_index("symbol", inplace=True)
-                frames.append(df)
-
-    if not frames:
-        return {}
-
-    # Parçalanmış veri setlerini symbol bazında birleştiriyoruz
-    result = {}
-    for symbol in symbols:
-        merged = {}
-        found = False
-        for d in frames:
-            if symbol in d.index:
-                found = True
-                row = d.loc[symbol]
-                if isinstance(row, pd.DataFrame):  # Tekrarlayan satır kontrolü
-                    row = row.iloc[0]
-                merged.update(row.to_dict())
-        
-        if found:
-            result[symbol] = merged
-
-    return result
 
 COLUMNS = [
     "name", "close", "market_cap_basic", "ebitda",
@@ -108,7 +45,9 @@ def _run_screener(criteria_list, label):
         screener = bp.Screener()
         for c in criteria_list:
             screener.add_filter(c, min=-9999, max=99999)
-        return screener.run()
+        df = screener.run()
+        print(f"      • {label}: {0 if df is None else len(df)} satır döndü")
+        return df
     except Exception as err:
         print(f"   ⚠️  İş Yatırım Screener hatası ({label}): {err}")
         return None
@@ -117,34 +56,48 @@ def _run_screener(criteria_list, label):
 def fetch_isyatirim(symbols: list[str]) -> dict:
     """İş Yatırım Screener'dan temel veri çeker.
 
-    ÜÇ AYRI istekte çalışır (eskiden TEK istekte 36 kriterdi). Sebep: 19 yeni
-    kriter (hedef fiyat/sektör/temettü) eklendikten sonra free_float ve
-    foreign_ratio gibi ESKİ, daha önce sorunsuz çalışan alanlar bazı hisselerde
-    (GARAN, KCHOL gibi büyük/likit hisseler dahil) boş dönmeye başladı — İş
-    Yatırım'ın tek istekte bu kadar çok kriteri işlerken bazı kolonları sessizce
-    atladığı görülüyor. Kriterleri gruplara bölüp ayrı istek yapmak bu riski
-    izole ediyor: bir grup bozulsa bile diğerleri etkilenmiyor.
+    HER KRİTER TEK BAŞINA, AYRI İSTEKTE çekiliyor — gruplama tamamen kaldırıldı.
+    Sebep (canlı testle kanıtlandı): tek kriterle 616 hisse dönüyor, 6 kriter
+    birlikte olunca bile 59'a düşüyor, 17 kriter birlikteyse 51'e düşüyor.
+    Yani "birkaç kriter güvenli" diye bir sınır yok — kriter SAYISI arttıkça
+    sunucu hisseleri düşürüyor. Tek güvenli yol: her isteği TEK kriterli tutmak.
+
+    diagnose_criteria.py ile ayrıca doğrulandı:
+    - Hedef fiyat/öneri kriterleri (166, target_price, 167, 338, 132, 323):
+      çalışıyor ama doğal olarak seyrek (sadece analist takibi olan hisselerde
+      veri var — düşük satır sayısı BUG değil, gerçek kapsam).
+    - Sektörel karşılaştırma (364, 365, 366, 368, 369, 371): HİÇBİRİ
+      ÇALIŞMIYOR — tek başına bile boş dönüyor/çöküyor. TAMAMEN ÇIKARILDI.
+    - Temettü detayı: sadece 156/157/151 çalışıyor, doğal olarak seyrek
+      (yakın zamanda temettü açıklayan az sayıda hisse). 152/161/162/134/326
+      boş dönüyor, ÇIKARILDI.
     """
-    CORE_CRITERIA = [
-        "pe", "pb", "roe", "float_ratio", "foreign_ratio", "ev_ebitda",
-        "net_margin", "ebitda_margin", "ev_sales",
-        "return_1d", "return_1w", "return_1m", "dividend_yield",
-        "foreign_ratio_1w_change", "foreign_ratio_1m_change",
-        "pe_hist_avg", "ev_ebitda_hist_avg",
-    ]
-    TARGET_SECTOR_CRITERIA = [
-        "166", "target_price", "167", "338", "132", "323",   # hedef fiyat / öneri
-        "364", "365", "366", "368", "369", "371",             # sektörel karşılaştırma
-    ]
-    DIVIDEND_CRITERIA = [
-        "156", "157", "151", "152", "161", "162", "134", "326",  # temettü detayı (ID2/ID3)
+    ALL_CRITERIA = [
+        # (kriter, kısa etiket)
+        ("pe", "F/K"), ("pb", "PD/DD"), ("roe", "ROE"),
+        ("float_ratio", "Halka Açıklık"), ("foreign_ratio", "Yabancı Oranı"),
+        ("ev_ebitda", "FD/FAVÖK"), ("net_margin", "Net Marj"),
+        ("ebitda_margin", "FAVÖK Marjı"), ("ev_sales", "FD/Satış"),
+        ("return_1d", "Günlük Getiri"), ("return_1w", "Haftalık Getiri"),
+        ("return_1m", "Aylık Getiri"), ("dividend_yield", "Temettü Verimi"),
+        ("foreign_ratio_1w_change", "Yab. Oranı 1H Değişim"),
+        ("foreign_ratio_1m_change", "Yab. Oranı 1A Değişim"),
+        ("pe_hist_avg", "Tarihsel Ort. F/K"), ("ev_ebitda_hist_avg", "Tarihsel Ort. FD/FAVÖK"),
+        ("166", "Hedef Fiyat"), ("target_price", "Hedef Fiyat (yedek)"),
+        ("167", "Getiri Potansiyeli"), ("338", "Önceki Hedef Fiyat"),
+        ("132", "Son Öneri Tarihi"), ("323", "Önceki Öneri Tarihi"),
+        ("156", "Temettü Verimi ID2"), ("157", "Temettü Verimi ID3"),
+        ("151", "Hisse Başı Temettü"),
     ]
 
-    df_core   = _run_screener(CORE_CRITERIA, "temel alanlar")
-    df_target = _run_screener(TARGET_SECTOR_CRITERIA, "hedef fiyat/sektör")
-    df_div    = _run_screener(DIVIDEND_CRITERIA, "temettü detayı")
+    frames = []
+    for i, (criteria, label) in enumerate(ALL_CRITERIA):
+        df = _run_screener([criteria], label)
+        if df is not None and not df.empty:
+            frames.append(df)
+        if i < len(ALL_CRITERIA) - 1:
+            time.sleep(1.2)  # art arda çok hızlı istek atmamak için kısa bekleme
 
-    frames = [d for d in (df_core, df_target, df_div) if d is not None and not d.empty]
     if not frames:
         return {}
 
@@ -273,6 +226,11 @@ def save_fundamentals(cur, stock_id, row, iy_row=None):
         prev_reco_date    = iy_row.get("criteria_323") or None
 
         # Sektörel karşılaştırma — İş Yatırım'ın kendi hesapladığı iskonto yüzdeleri
+        # NOT: 364/365/366/368/369/371 artık fetch_isyatirim'de İSTENMİYOR
+        # (diagnose_criteria.py ile çalışmadığı doğrulandı) — bu yüzden
+        # aşağıdaki .get() çağrıları hep None dönecek, sector_* alanları
+        # DAİMA boş kalacak. Kod kasıtlı olarak böyle bırakıldı; ileride
+        # gerçek kaynağı (ayrı bir rapor sayfası) bulursak buraya eklenir.
         sector_pe         = _safe_float_tr(iy_row.get("criteria_364"))
         sector_ev_ebitda  = _safe_float_tr(iy_row.get("criteria_365"))
         sector_pb         = _safe_float_tr(iy_row.get("criteria_366"))
@@ -284,6 +242,8 @@ def save_fundamentals(cur, stock_id, row, iy_row=None):
         cash_dividend_yield   = _safe_float_tr(iy_row.get("criteria_156"))
         bonus_dividend_yield  = _safe_float_tr(iy_row.get("criteria_157"))
         cash_dividend_per_share  = _safe_float_tr(iy_row.get("criteria_151"))
+        # NOT: 152/161/162/134/326 artık fetch_isyatirim'de İSTENMİYOR (boş
+        # döndükleri doğrulandı) — bu alanlar DAİMA None kalacak, kasıtlı.
         bonus_dividend_per_share = _safe_float_tr(iy_row.get("criteria_152"))
         cash_payout_ratio  = _safe_float_tr(iy_row.get("criteria_161"))
         bonus_payout_ratio = _safe_float_tr(iy_row.get("criteria_162"))

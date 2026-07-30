@@ -9,44 +9,59 @@ const FILTER_DEFINITIONS = {
   HAFTALIK_2: "Haftalık INV1(9) 0.5'i yukarı keser, EMA21 fiyatın altında, MACDAS 0'ı yukarı keser, CCI(20) 100'ü yukarı keser",
   HAFTALIK_3: "Haftalık INV1(9) 0.5'i yukarı keser, Fiyat EMA21'i yukarı keser, MACDAS 0'ı yukarı keser, CCI(20) > -100",
   GUNLUK_1:   "Günlük INV1(13) 0.5'i yukarı keser, EMA21 fiyatın altında, MACDAS > 0, CCI(20) 100'ü yukarı keser",
-  CCI100_HAFTALIK:  "Haftalık CCI(20) 100 seviyesini yukarı keser",
-  CCI100_GUNLUK:    "Günlük CCI(20) 100 seviyesini yukarı keser",
-  IFTCCI5_HAFTALIK: "Haftalık IFTCCI5 (CCI5 + WMA9 + Inverse Fisher) 0.5 seviyesini yukarı keser",
-  IFTCCI5_GUNLUK:   "Günlük IFTCCI5 (CCI5 + WMA9 + Inverse Fisher) 0.5 seviyesini yukarı keser",
 };
 
 function fmt(v, d = 2) {
   return v == null ? "veri yok" : Number(v).toFixed(d);
 }
 
-// Bilanço satır adlarını (Toplam Varlıklar, Özkaynaklar vb.) tahmin etmiyoruz —
-// borsapy'den gelen ham JSON'u, "TOPLAM"/"ÖZKAYNAK" geçen üst-kalem satırlarını
-// öne çıkararak (token limiti için üst sınır koyup) olduğu gibi AI'ya veriyoruz.
+// DİKKAT: Bilanço kaynağı değişti — artık mali_tablolar.py, sirket-karti.aspx'i
+// scrape ederek Bilanço + Gelir Tablosu + Nakit Akım Tablosu'nu TEK JSON'da
+// yazıyor: {periods:[...], sections:{"Bilanço":{...}, "Gelir Tablosu":{...},
+// "Nakit Akım Tablosu":{...}}}. Eski {data,prev_data} yapısı artık gelmiyor —
+// bu fonksiyon o yüzden yeniden yazıldı.
 function formatBalanceSheet(f) {
   const bs = f.balance_sheet_json;
-  if (!bs || !bs.data || !Object.keys(bs.data).length) return null;
+  if (!bs || !bs.sections || !bs.periods?.length) return null;
 
-  const { data, prev_data, prev_period } = bs;
-  const priorityKeys = Object.keys(data).filter(k => /toplam|özkaynak/i.test(k));
-  const otherKeys = Object.keys(data).filter(k => !priorityKeys.includes(k));
-  const orderedKeys = [...priorityKeys, ...otherKeys].slice(0, 25);
+  const { periods, sections } = bs;
+  const financialGroup = f.financial_group || null;
 
-  const lines = orderedKeys.map(k => {
-    const cur = data[k];
-    const prev = prev_data ? prev_data[k] : null;
-    const curStr = cur != null ? Number(cur).toLocaleString("tr-TR") : "veri yok";
-    if (prev != null && cur != null && prev !== 0) {
-      const changePct = (((cur - prev) / Math.abs(prev)) * 100).toFixed(1);
-      return `- ${k}: ${curStr} TL (önceki döneme göre %${changePct})`;
-    }
-    return `- ${k}: ${curStr} TL`;
-  });
+  const formatSection = (sectionName, maxRows) => {
+    const rows = sections[sectionName];
+    if (!rows) return null;
+    // Öncelik: "TOPLAM"/"ÖZKAYNAK"/"NET" geçen üst kalemler, token limiti için üst sınır
+    const keys = Object.keys(rows);
+    const priority = keys.filter(k => /toplam|özkaynak|net kar|net kâr/i.test(k));
+    const rest = keys.filter(k => !priority.includes(k));
+    const ordered = [...priority, ...rest].slice(0, maxRows);
+
+    return ordered.map(label => {
+      const vals = rows[label] || [];
+      const curStr = vals[0] != null ? Number(vals[0]).toLocaleString("tr-TR") : "veri yok";
+      if (vals[1] != null && vals[0] != null && vals[1] !== 0) {
+        const changePct = (((vals[0] - vals[1]) / Math.abs(vals[1])) * 100).toFixed(1);
+        return `- ${label}: ${curStr} (önceki döneme göre %${changePct})`;
+      }
+      return `- ${label}: ${curStr}`;
+    }).join("\n");
+  };
+
+  const bilanco = formatSection("Bilanço", 20);
+  const gelirTablosu = formatSection("Gelir Tablosu", 15);
+  const nakitAkim = formatSection("Nakit Akım Tablosu", 10);
+
+  if (!bilanco && !gelirTablosu && !nakitAkim) return null;
 
   return {
-    financialGroup: f.financial_group,
-    period: f.balance_sheet_period,
-    prevPeriod: prev_period,
-    text: lines.join("\n"),
+    financialGroup,
+    period: periods[0],
+    prevPeriod: periods[1] || null,
+    text: [
+      bilanco ? `BİLANÇO:\n${bilanco}` : null,
+      gelirTablosu ? `GELİR TABLOSU:\n${gelirTablosu}` : null,
+      nakitAkim ? `NAKİT AKIM TABLOSU (özet):\n${nakitAkim}` : null,
+    ].filter(Boolean).join("\n\n"),
   };
 }
 
@@ -64,9 +79,7 @@ async function getHistoricalStats(filterCode) {
   return rows[0];
 }
 
-// BIST özelleştirmeli AI analiz rotası — sadece şemada var olan tablolar/kolonlar kullanılır:
-// stocks, stock_quotes, stock_indices, fundamentals_snapshots, indicator_snapshots,
-// stock_news, tracked_signals, corporate_actions
+// BIST Özelleştirmeli, Sektörel ve Tarihsel Çarpan Destekli AI Analiz Rotası
 router.post("/stocks/:symbol/comment", authenticate, async (req, res, next) => {
   try {
     const symbol = req.params.symbol.toUpperCase();
@@ -85,8 +98,7 @@ router.post("/stocks/:symbol/comment", authenticate, async (req, res, next) => {
     }
 
     const { rows: stockRows } = await query(
-      `SELECT s.id, s.symbol, s.name, s.sector, s.industry,
-              q.price, q.change_pct, q.day_high, q.day_low
+      `SELECT s.id, s.symbol, s.name, s.sector, q.price, q.change_pct
        FROM stocks s LEFT JOIN stock_quotes q ON q.stock_id = s.id
        WHERE s.symbol = $1`,
       [symbol]
@@ -100,39 +112,28 @@ router.post("/stocks/:symbol/comment", authenticate, async (req, res, next) => {
     );
     const indexMemberships = indexRows.map(r => r.index_code);
 
-    const { rows: indicatorRows } = await query("SELECT * FROM indicator_snapshots WHERE stock_id = $1", [stock.id]);
-    const ind = indicatorRows[0] || {};
+    const { rows: filterRows } = await query("SELECT * FROM indicator_snapshots WHERE stock_id = $1", [stock.id]);
+    const filterData = filterRows[0] || {};
 
     const { rows: fundRows } = await query("SELECT * FROM fundamentals_snapshots WHERE stock_id = $1", [stock.id]);
     const f = fundRows[0] || {};
 
     const { rows: newsRows } = await query(
-      "SELECT title, published_at FROM stock_news WHERE stock_id = $1 ORDER BY published_at DESC NULLS LAST LIMIT 4",
+      "SELECT title FROM stock_news WHERE stock_id = $1 ORDER BY published_at DESC LIMIT 3",
       [stock.id]
     );
 
-    // Sermaye artırımı / temettü takvimi (son 5 kayıt)
-    const { rows: corpRows } = await query(
-      `SELECT event_date, bedelli_oran, bedelsiz_ic_oran, bedelsiz_tm_oran, nakit_tm_oran, ruchan_oran
-       FROM corporate_actions
-       WHERE stock_id = $1
-       ORDER BY event_date DESC
-       LIMIT 5`,
-      [stock.id]
-    );
-
-    // Sektörel ortalamalar — aşırı uçları (outlier) törpüleyen filtrelerle
+    // Sektörel Ortalamaları Dinamik Hesaplama
+    // Sektördeki aşırı uçları (outliers) törpülemek için basit filtreler (PE < 150 vb.) kullanıyoruz.
     let sectorData = null;
     if (stock.sector) {
       const { rows: sectorRows } = await query(
-        `SELECT
-           COUNT(*) AS n,
-           AVG(f.pe_ratio)   FILTER (WHERE f.pe_ratio > 0 AND f.pe_ratio < 150)   AS avg_pe,
-           AVG(f.pb_ratio)   FILTER (WHERE f.pb_ratio > 0 AND f.pb_ratio < 30)    AS avg_pb,
-           AVG(f.ev_ebitda)  FILTER (WHERE f.ev_ebitda > 0 AND f.ev_ebitda < 100) AS avg_ev_ebitda,
-           AVG(f.roe)        FILTER (WHERE f.roe > -100 AND f.roe < 200)          AS avg_roe,
-           AVG(f.net_margin) FILTER (WHERE f.net_margin > -100 AND f.net_margin < 100) AS avg_net_margin,
-           AVG(f.dividend_yield) FILTER (WHERE f.dividend_yield > 0)              AS avg_dividend_yield
+        `SELECT 
+           AVG(f.pe_ratio) FILTER (WHERE f.pe_ratio > 0 AND f.pe_ratio < 150) as avg_pe,
+           AVG(f.pb_ratio) FILTER (WHERE f.pb_ratio > 0 AND f.pb_ratio < 30) as avg_pb,
+           AVG(f.ev_ebitda) FILTER (WHERE f.ev_ebitda > 0 AND f.ev_ebitda < 100) as avg_ev_ebitda,
+           AVG(f.roe) as avg_roe,
+           AVG(f.dividend_yield) FILTER (WHERE f.dividend_yield > 0) as avg_dividend_yield
          FROM stocks s
          JOIN fundamentals_snapshots f ON f.stock_id = s.id
          WHERE s.sector = $1`,
@@ -142,14 +143,10 @@ router.post("/stocks/:symbol/comment", authenticate, async (req, res, next) => {
     }
 
     const activeFilterCodes = [];
-    if (ind.haftalik_1) activeFilterCodes.push("HAFTALIK_1");
-    if (ind.haftalik_2) activeFilterCodes.push("HAFTALIK_2");
-    if (ind.haftalik_3) activeFilterCodes.push("HAFTALIK_3");
-    if (ind.gunluk_1)   activeFilterCodes.push("GUNLUK_1");
-    if (ind.cci100_haftalik)  activeFilterCodes.push("CCI100_HAFTALIK");
-    if (ind.cci100_gunluk)    activeFilterCodes.push("CCI100_GUNLUK");
-    if (ind.iftcci5_haftalik) activeFilterCodes.push("IFTCCI5_HAFTALIK");
-    if (ind.iftcci5_gunluk)   activeFilterCodes.push("IFTCCI5_GUNLUK");
+    if (filterData.haftalik_1) activeFilterCodes.push("HAFTALIK_1");
+    if (filterData.haftalik_2) activeFilterCodes.push("HAFTALIK_2");
+    if (filterData.haftalik_3) activeFilterCodes.push("HAFTALIK_3");
+    if (filterData.gunluk_1)   activeFilterCodes.push("GUNLUK_1");
 
     const historicalStats = {};
     for (const code of activeFilterCodes) {
@@ -157,112 +154,97 @@ router.post("/stocks/:symbol/comment", authenticate, async (req, res, next) => {
     }
 
     // ── Türetilmiş değerler ──
-    const price = stock.price != null ? Number(stock.price) : null;
     const netDebtToEbitda = (f.total_debt != null && f.favok) ? (f.total_debt / f.favok) : null;
-    const priceVsSma50 = (price != null && f.sma50 != null)
-      ? (price > f.sma50 ? "üzerinde" : "altında") : null;
+    const priceVsSma50 = (stock.price != null && f.sma50 != null)
+      ? (Number(stock.price) > f.sma50 ? "üzerinde" : "altında") : null;
     const macdSignalRel = (f.macd_line != null && f.macd_signal_line != null)
       ? (f.macd_line > f.macd_signal_line ? "AL yönünde (MACD sinyalin üzerinde)" : "SAT yönünde (MACD sinyalin altında)")
       : null;
     const volumeStatus = (f.volume != null && f.avg_volume_10d) ?
       (((f.volume / f.avg_volume_10d) - 1) * 100) : null;
-    // PEG = F/K / büyüme oranı — sadece büyüme pozitifse anlamlı bir çarpan verir
     const pegRatio = (f.pe_ratio != null && f.net_income_yoy_growth && f.net_income_yoy_growth > 0)
       ? (f.pe_ratio / f.net_income_yoy_growth) : null;
-    // 52 hafta bandındaki konum
-    const distFromHigh = (price != null && f.year_high) ? ((price - f.year_high) / f.year_high) * 100 : null;
-    const distFromLow  = (price != null && f.year_low)  ? ((price - f.year_low)  / f.year_low)  * 100 : null;
-    // Fiili dolaşımdaki piyasa değeri (likidite/oynaklık göstergesi)
-    const floatMcap = (f.market_cap != null && f.free_float != null)
-      ? (Number(f.market_cap) * Number(f.free_float) / 100) : null;
     const balanceSheet = formatBalanceSheet(f);
 
-    // Sermaye artırımı/temettü satırları — YAKLAŞAN/geçmiş ayrımı önemli
-    const corpActionsText = corpRows.map(ca => {
-      const parts = [];
-      if (Number(ca.bedelli_oran) > 0)     parts.push(`Bedelli sermaye artırımı %${fmt(ca.bedelli_oran)}`);
-      if (Number(ca.bedelsiz_ic_oran) > 0) parts.push(`Bedelsiz (iç kaynak) %${fmt(ca.bedelsiz_ic_oran)}`);
-      if (Number(ca.bedelsiz_tm_oran) > 0) parts.push(`Bedelsiz (temettü) %${fmt(ca.bedelsiz_tm_oran)}`);
-      if (Number(ca.nakit_tm_oran) > 0)    parts.push(`Nakit temettü %${fmt(ca.nakit_tm_oran)}`);
-      if (Number(ca.ruchan_oran) > 0)      parts.push(`Rüçhan hakkı %${fmt(ca.ruchan_oran)}`);
-      const d = ca.event_date ? new Date(ca.event_date).toLocaleDateString("tr-TR") : "tarih yok";
-      const isFuture = ca.event_date && new Date(ca.event_date) > new Date();
-      return `- ${d}${isFuture ? " (YAKLAŞAN)" : " (geçmiş)"}: ${parts.length ? parts.join(", ") : "detay yok"}`;
-    }).join("\n");
+    // Hedef fiyat / analist önerisi — doğal olarak seyrek (sadece analist
+    // takibi olan hisselerde veri var), "veri yok" çıkması normal.
+    const targetPriceText = (f.target_price != null)
+      ? `Analist Hedef Fiyatı: ${fmt(f.target_price)} TL (Getiri Potansiyeli: %${fmt(f.upside_potential)})` +
+        (f.prev_target_price != null ? ` | Önceki Hedef: ${fmt(f.prev_target_price)} TL` : "") +
+        (f.last_reco_date ? ` | Son Öneri Tarihi: ${f.last_reco_date}` : "")
+      : "Analist hedef fiyatı verisi yok (bu hisse için yayınlanmış bir kurum tahmini bulunmuyor olabilir).";
 
-    const newsText = newsRows.map(n => {
-      const d = n.published_at ? new Date(n.published_at).toLocaleDateString("tr-TR") : "";
-      return `- ${d ? `[${d}] ` : ""}${n.title}`;
-    }).join("\n");
+    // Temettü detayı — DİKKAT: {ID2}/{ID3} kriterlerinin "nakit/bedelsiz" mi
+    // yoksa "brüt/net oran" mı olduğu kesinleşmedi (bkz. sirket-karti.aspx'te
+    // görülen Brüt/Net Oran kolonları). Bu yüzden kesin bir etiket iddia
+    // etmiyoruz, iki oranı da nötr şekilde sunuyoruz.
+    const dividendDetailText = (f.cash_dividend_yield != null || f.cash_dividend_per_share != null)
+      ? `Temettü Verimi Oranları: %${fmt(f.cash_dividend_yield)} / %${fmt(f.bonus_dividend_yield)}` +
+        (f.cash_dividend_per_share != null ? ` | Hisse Başı Temettü: ${fmt(f.cash_dividend_per_share)} TL` : "")
+      : null;
 
     const prompt = `
-Sen Borsa İstanbul (BIST) dinamiklerine tam hakim, kıdemli bir portföy yöneticisi ve analistsin. Aşağıda ${stock.symbol} (${stock.name}) hissesine ait güncel verileri paylaşıyorum. Bu verilerin DIŞINA ÇIKMADAN, veri odaklı, objektif ve profesyonel bir analiz yap. "veri yok" yazan alanlar hakkında tahmin yürütme, sadece mevcut verilerle konuş.
+Sen Borsa İstanbul (BIST) dinamiklerine tam hakim, deneyimli bir kıdemli portföy yöneticisi ve analistsin. Aşağıda temel, sektörel, temettü, teknik ve haber (KAP) verilerini paylaştığım ${stock.symbol} (${stock.name}) hissesi için profesyonel, veri odaklı ve objektif bir analiz yapmanı istiyorum.
 
-═══ 1. ŞİRKET KİMLİĞİ VE DEĞERLEME ═══
-- Sektör: ${stock.sector ?? "bilinmiyor"} | Alt Sektör: ${stock.industry ?? "bilinmiyor"}
+1. ŞİRKET VE TEMEL BÜYÜME VERİLERİ:
+- Sektör: ${stock.sector ?? "bilinmiyor"}
 - Endeks Üyelikleri: ${indexMemberships.length ? indexMemberships.join(", ") : "yok / bilinmiyor"}
-- Piyasa Değeri: ${f.market_cap != null ? Number(f.market_cap).toLocaleString("tr-TR") + " TL" : "veri yok"}
-- Halka Açıklık: %${fmt(f.free_float, 1)} → Fiili Dolaşım Değeri: ${floatMcap != null ? Number(floatMcap.toFixed(0)).toLocaleString("tr-TR") + " TL" : "veri yok"} (düşükse likidite/oynaklık riski olarak değerlendir)
-- F/K: ${fmt(f.pe_ratio)} | Şirketin Kendi Tarihsel F/K Ortalaması: ${fmt(f.pe_hist_avg)}
-- FD/FAVÖK: ${fmt(f.ev_ebitda)} | Kendi Tarihsel FD/FAVÖK Ortalaması: ${fmt(f.ev_ebitda_hist_avg)}
-- PD/DD: ${fmt(f.pb_ratio)} | FD/Satış: ${fmt(f.ev_sales)}
+- Piyasa Değeri (Market Cap): ${f.market_cap ? Number(f.market_cap).toLocaleString("tr-TR") + " TL" : "veri yok"}
+- F/K Oranı: ${fmt(f.pe_ratio)} | Kendi Tarihsel F/K Ortalaması: ${fmt(f.pe_hist_avg)}
+- FD/FAVÖK: ${fmt(f.ev_ebitda)} | Kendi Tarihsel FD/FAVÖK Ort: ${fmt(f.ev_ebitda_hist_avg)}
+- PD/DD Oranı: ${fmt(f.pb_ratio)}
 - PEG Rasyosu: ${pegRatio != null ? pegRatio.toFixed(2) : "veri yok (büyüme negatif/yok)"}
+- Özsermaye Karlılığı (ROE): %${fmt(f.roe, 1)}
+- Kâr Marjları: Net Marj %${fmt(f.net_margin, 1)}, FAVÖK Marjı %${fmt(f.ebitda_margin, 1)}
+- Son Çeyrek Finansalları: Net kâr yıllık %${fmt(f.net_income_yoy_growth, 1)}, ciro %${fmt(f.revenue_yoy_growth, 1)} değişti.
+- Borç Durumu: Toplam Borç/FAVÖK oranı ~ ${netDebtToEbitda != null ? netDebtToEbitda.toFixed(2) : "veri yok"}
+- ${targetPriceText}
 
-═══ 2. SEKTÖREL KARŞILAŞTIRMA (Sektör: ${stock.sector ?? "Bilinmiyor"}) ═══
-${sectorData && Number(sectorData.n) > 1 ? `Sektördeki ${sectorData.n} şirketin ortalamaları (aşırı uçlar hariç):
-- Ort. F/K: ${fmt(sectorData.avg_pe)} (Bu hisse: ${fmt(f.pe_ratio)})
-- Ort. PD/DD: ${fmt(sectorData.avg_pb)} (Bu hisse: ${fmt(f.pb_ratio)})
-- Ort. FD/FAVÖK: ${fmt(sectorData.avg_ev_ebitda)} (Bu hisse: ${fmt(f.ev_ebitda)})
-- Ort. ROE: %${fmt(sectorData.avg_roe, 1)} (Bu hisse: %${fmt(f.roe, 1)})
-- Ort. Net Marj: %${fmt(sectorData.avg_net_margin, 1)} (Bu hisse: %${fmt(f.net_margin, 1)})
-- Ort. Temettü Verimi: %${fmt(sectorData.avg_dividend_yield)} (Bu hisse: %${fmt(f.dividend_yield)})` : "- Sektörel karşılaştırma verisi yetersiz."}
+2. SEKTÖREL KARŞILAŞTIRMA (Sektör: ${stock.sector ?? "Bilinmiyor"}):
+${sectorData ? `
+- Sektör Ortalama F/K: ${fmt(sectorData.avg_pe)} (Hisse: ${fmt(f.pe_ratio)})
+- Sektör Ortalama PD/DD: ${fmt(sectorData.avg_pb)} (Hisse: ${fmt(f.pb_ratio)})
+- Sektör Ortalama FD/FAVÖK: ${fmt(sectorData.avg_ev_ebitda)} (Hisse: ${fmt(f.ev_ebitda)})
+- Sektör Ortalama ROE: %${fmt(sectorData.avg_roe, 1)} (Hisse: %${fmt(f.roe, 1)})
+- Sektör Ortalama Temettü Verimi: %${fmt(sectorData.avg_dividend_yield)} (Hisse: %${fmt(f.dividend_yield)})
+` : "- Sektörel ortalama verisi hesaplanamadı."}
 
-═══ 3. KÂRLILIK, BÜYÜME VE BORÇ ═══
-- FAVÖK: ${f.favok != null ? Number(f.favok).toLocaleString("tr-TR") + " TL" : "veri yok"} | Net Kâr: ${f.net_kar != null ? Number(f.net_kar).toLocaleString("tr-TR") + " TL" : "veri yok"}
-- ROE: %${fmt(f.roe, 1)} | Net Marj: %${fmt(f.net_margin, 1)} | FAVÖK Marjı: %${fmt(f.ebitda_margin, 1)}
-- Yıllık Büyüme: Net kâr %${fmt(f.net_income_yoy_growth, 1)}, ciro %${fmt(f.revenue_yoy_growth, 1)}
-- Borçluluk: Toplam Borç/FAVÖK ~ ${netDebtToEbitda != null ? netDebtToEbitda.toFixed(2) : "veri yok"}
-
-═══ 4. TEMETTÜ, YABANCI TAKASI VE SERMAYE OLAYLARI (BIST Dinamikleri) ═══
+3. TEMETTÜ, YABANCI TAKASI VE MOMENTUM (BIST Dinamikleri):
 - Temettü Verimi: %${fmt(f.dividend_yield)}
-- Yabancı Takas Oranı: %${fmt(f.foreign_ratio, 1)} | Değişim: 1 haftada ${fmt(f.foreign_ratio_1w_change, 2)} puan, 1 ayda ${fmt(f.foreign_ratio_1m_change, 2)} puan (pozitif = yabancı para girişi)
-- Getiri Momentumu: Günlük %${fmt(f.return_1d)}, Haftalık %${fmt(f.return_1w)}, Aylık %${fmt(f.return_1m)}
+- Yabancı Takas Oranı: %${fmt(f.foreign_ratio, 1)}
+- Yabancı Takası Değişimi: Son 1 haftada %${fmt(f.foreign_ratio_1w_change, 2)}, son 1 ayda %${fmt(f.foreign_ratio_1m_change, 2)}
+- Hisse Getirisi: Günlük %${fmt(f.return_1d)}, Haftalık %${fmt(f.return_1w)}, Aylık %${fmt(f.return_1m)}
+${dividendDetailText ? `- ${dividendDetailText}` : ""}
 
-SERMAYE ARTIRIMI / TEMETTÜ TAKVİMİ (KAP kayıtları):
-${corpActionsText || "- Kayıtlı sermaye artırımı/temettü olayı yok."}
-
-═══ 5. TEKNİK GÖRÜNÜM ═══
-- Güncel Fiyat: ${price ?? "?"} TL (günlük ${stock.change_pct ?? "?"}%) | Gün içi bant: ${fmt(stock.day_low)} – ${fmt(stock.day_high)}
-- 52 Hafta Bandı: ${fmt(f.year_low)} – ${fmt(f.year_high)} TL → Fiyat, zirvenin %${distFromHigh != null ? Math.abs(distFromHigh).toFixed(1) : "?"} ${distFromHigh != null && distFromHigh < 0 ? "altında" : "üzerinde/yakınında"}, dipten %${distFromLow != null ? distFromLow.toFixed(1) : "?"} uzakta
-- Destek/Direnç (Pivot): Yakın destek ~${fmt(f.pivot_s1)}, yakın direnç ~${fmt(f.pivot_r1)}
-- RSI(14): ${fmt(f.rsi, 1)} | MACD: ${macdSignalRel ?? "veri yok"}
-- 50 Günlük HO: Fiyat ortalamanın ${priceVsSma50 ?? "veri yok"} (HO: ${fmt(f.sma50)})
+4. TEKNİK ANALİZ VERİLERİ:
+- Güncel Fiyat: ${stock.price ?? "?"} TL (${stock.change_pct ?? "?"}%)
+- Destek / Direnç: Yakın destek ~${fmt(f.pivot_s1)}, yakın direnç ~${fmt(f.pivot_r1)}
+- RSI: ${fmt(f.rsi, 1)}
+- MACD: ${macdSignalRel ?? "veri yok"}
+- 50 Günlük HO: Fiyat HO'nun ${priceVsSma50 ?? "veri yok"} (HO: ${fmt(f.sma50)})
 - Hacim: Güncel hacim, 10 günlük ortalamanın ${volumeStatus != null ? (volumeStatus >= 0 ? `%${volumeStatus.toFixed(0)} üzerinde` : `%${Math.abs(volumeStatus).toFixed(0)} altında`) : "veri yok"}
-- Sistem Gösterge Anlık Değerleri → Haftalık: INV1(9)=${fmt(ind.inv1_9)}, EMA21=${fmt(ind.ema21_weekly)}, MACDAS=${fmt(ind.macdas_weekly)}, CCI(20)=${fmt(ind.cci20_weekly, 1)}, IFTCCI5=${fmt(ind.iftcci5_weekly_value)} | Günlük: INV1(13)=${fmt(ind.inv1_13)}, EMA21=${fmt(ind.ema21_daily)}, MACDAS=${fmt(ind.macdas_daily)}, CCI(20)=${fmt(ind.cci20_daily, 1)}, IFTCCI5=${fmt(ind.iftcci5_daily_value)}
 
-TETİKLENEN ÖZEL TEKNİK FİLTRELER (kendi tarama sistemimiz, geçmiş performanslarıyla):
+TETİKLENEN ÖZEL TEKNİK FİLTRELER (Algoritmamız):
 ${activeFilterCodes.length ? activeFilterCodes.map(c => {
   const s = historicalStats[c];
   const winRate = s.total > 0 ? ((s.winners / s.total) * 100).toFixed(0) : "0";
   return `- ${c}: ${FILTER_DEFINITIONS[c]} | Geçmişte ${s.total} örnek, ortalama getiri %${s.avg_change_pct ?? "?"}, kazanma oranı %${winRate}, %10 kazanca ortalama ${s.avg_days_to_10 ?? "?"} günde ulaşılmış.`;
 }).join("\n") : "- Şu an hiçbir özel filtre tetiklenmiyor."}
 
-═══ 6. KAP HABERLERİ VE BİLANÇO ═══
-${newsText || "- Güncel haber bulunamadı."}
-${balanceSheet ? `
-BİLANÇO (${balanceSheet.financialGroup === "UFRS" ? "bankacılık formatı" : "sanayi şirketi formatı"}, dönem: ${balanceSheet.period}${balanceSheet.prevPeriod ? `, karşılaştırma: ${balanceSheet.prevPeriod}` : ""}):
-${balanceSheet.text}` : ""}
+5. KAP HABERLERİ VE BİLANÇO:
+${newsRows.length ? newsRows.map(n => `- ${n.title}`).join("\n") : "- Güncel haber bulunamadı."}
+${balanceSheet ? `\nBİLANÇO YAPISI (${balanceSheet.financialGroup} formatı, Dönem: ${balanceSheet.period}${balanceSheet.prevPeriod ? `, karşılaştırma dönemi: ${balanceSheet.prevPeriod}` : ""}):\n${balanceSheet.text}` : ""}
 
-═══ SENDEN İSTEDİKLERİM ═══
-1. "finansal_saglik": Çarpanları hem sektör ortalamalarıyla hem şirketin KENDİ tarihsel ortalamalarıyla (F/K ve FD/FAVÖK tarihsel ort.) kıyasla — ucuz mu pahalı mı, kârlılık ve borçluluk sağlıklı mı (2-4 cümle).
-2. "temettu_ve_takas": Temettü verimini, sermaye takvimini (YAKLAŞAN bedelli varsa sulanma riskini, yaklaşan bedelsiz/nakit temettü varsa olası pozitif etkiyi MUTLAKA belirt) ve yabancı takas değişimini (para girişi/çıkışı) yorumla (2-3 cümle).
-3. "teknik_temel_uyumu": 52 hafta bandındaki konum, momentum, hacim, RSI/MACD ve tetiklenen filtrelerin (geçmiş başarı oranlarını da tartarak) temel tabloyu destekleyip desteklemediğini açıkla (2-4 cümle).
-4. "kap_etkisi": KAP haberlerinin kısa/orta vadede fiyatlamaya olası etkisi (2-3 cümle).
-5. "bilanco_yorumu": Bilanço dönem aktivitesini ve finansal yapı için anlamını yorumla${balanceSheet ? "" : ' — veri yoksa "Bilanço verisi bulunmuyor" yaz'} (2-3 cümle).
-6. "riskler" ve "firsatlar": Her biri için EN AZ 2, EN FAZLA 4 madde; genel geçer değil, yukarıdaki verilere dayalı somut maddeler yaz (halka açıklık düşükse likidite riskini, bedelli varsa sulanmayı, yabancı çıkışı varsa onu unutma).
-7. "tavsiye" (AL/SAT/BEKLE) ve "risk_seviyesi" (Düşük/Orta/Yüksek): Yukarıdaki analizinle tutarlı, rasyonel bir sonuca bağla.
+SENDEN İSTEDİKLERİM (Aşağıdaki JSON şemasına kesinlikle sadık kal):
+1. "finansal_saglik": Çarpanları hem sektör ortalamalarıyla hem şirketin kendi tarihsel ortalamalarıyla kıyasla, kârlılığı ve borçluluğu yorumla (2-4 cümle).
+2. "temettu_ve_takas": Temettü verimini, varsa hedef fiyat/analist önerisini ve yabancı takas değişimini yorumla (2-3 cümle).
+3. "teknik_temel_uyumu": Fiyat momentumu, hacim, yabancı ilgisi ve teknik filtrelerin (geçmiş başarı oranlarını da tartarak) temel tabloyu destekleyip desteklemediğini açıkla (2-4 cümle).
+4. "kap_etkisi": KAP haberlerinin kısa/orta vadede fiyatlamaya olası etkisi (2-3 cümle, haber yoksa "Güncel KAP haberi bulunmuyor" yaz).
+5. "bilanco_yorumu": Bilanço/gelir tablosu/nakit akım dönem aktivitesini yorumla${balanceSheet ? "" : " — veri yoksa \"Bilanço verisi bulunmuyor\" yaz"} (2-3 cümle).
+6. "riskler" ve "firsatlar": Her biri en az 2 madde, somut verilere dayalı.
+7. "tavsiye" (AL/SAT/BEKLE) ve "risk_seviyesi" (Düşük/Orta/Yüksek): Analizinle tutarlı bir sonuca bağla.
 
-SADECE aşağıdaki JSON formatında, başka hiçbir metin eklemeden cevap ver:
+SADECE AŞAĞIDAKİ JSON FORMATINDA CEVAP VER:
 {
   "finansal_saglik": "...",
   "temettu_ve_takas": "...",
@@ -282,9 +264,9 @@ SADECE aşağıdaki JSON formatında, başka hiçbir metin eklemeden cevap ver:
         "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: "gpt-4o-mini", // Veya ihtiyaca göre gpt-4o
         messages: [
-          { role: "system", content: "Sen deneyimli bir Borsa İstanbul (BIST) analistisin. Sana verilen verilerin dışına çıkmadan, nesnel ve profesyonel bir JSON çıktısı üretirsin. İçeriğin yatırım tavsiyesi niteliği taşımadığını unutma." },
+          { role: "system", content: "Sen deneyimli bir Borsa İstanbul (BIST) analistisin. Verileri sentezleyerek nesnel, profesyonel bir JSON çıktısı üretirsin. Yatırım tavsiyesi niteliği taşımadığını unutma." },
           { role: "user", content: prompt },
         ],
         response_format: { type: "json_object" },

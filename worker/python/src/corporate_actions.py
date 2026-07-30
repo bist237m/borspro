@@ -1,13 +1,15 @@
 # python/src/corporate_actions.py
-# Sermaye artırımları ve temettü takvimi — Temel-Degerler-Ve-Oranlar.aspx
-# sayfasının "Sermaye Artırımları" tablosundan (ham HTML, <tr class="SermayeRow">).
+# Sermaye artırımları/temettü VE yabancı oranları — ikisi de aynı sayfadan
+# (Temel-Degerler-Ve-Oranlar.aspx), TEK istekle.
 #
 # ÖNEMLİ: Bu veri AJAX ile değil, sayfanın kendi HTML'inde geliyor (JS ile
 # sadece gizleniyor/gösteriliyor) — bu yüzden borsapy'nin kullandığı hazır
 # istekler yerine burada DOĞRUDAN requests + BeautifulSoup ile sayfayı
 # kendimiz çekip parse ediyoruz.
 #
-# Kolon eşlemesi (gerçek sayfa HTML'inden elle çıkarıldı, tahmin değil):
+# Kolon eşlemesi (gerçek sayfa HTML'inden/ekran görüntüsünden elle çıkarıldı):
+#
+# Sermaye Artırımları (<tr class="SermayeRow">, class isimli kolonlar):
 #   PRICE_TL                    -> event anındaki fiyat (TL)
 #   HSP_BOLUNME_SONRASI_SERMAYE -> bölünme sonrası sermaye
 #   SHHE_TARIH (data-order)     -> işlem/hak kullanım tarihi (YYYYMMDD...)
@@ -19,6 +21,15 @@
 #   SHHE_NAKIT_TM_ORAN          -> Nakit temettü oranı (%)
 #   SHHE_NAKIT_TM_TUTAR         -> Nakit temettü tutarı
 #   SHHE_FIYAT_AYAR_OR          -> Fiyat ayar oranı (geçmiş fiyat düzeltmesi için)
+#
+# Yabancı Oranları (<tbody id="yabanciOranlarTbody">, kolonlar class'sız —
+# ekran görüntüsünden pozisyonla eşlendi, SIRA SABİT):
+#   td[0] -> Kod (sembol, <a> içinde)
+#   td[1] -> Kapanış (TL)
+#   td[2] -> Yabancı Oranı % (önceki seçili tarih — kullanılmıyor)
+#   td[3] -> Yabancı Oranı % (GÜNCEL/en son tarih) -> fundamentals_snapshots.foreign_ratio
+#   td[4] -> Değişim (Baz Puan)
+#   td[5] -> Etki* (%) (yabancı takas adedi değişiminin halka açıklık adedine etkisi)
 
 import requests
 from datetime import datetime
@@ -44,13 +55,17 @@ def _parse_tr_number(text):
         return None
 
 
-def fetch_corporate_actions():
-    """Sayfayı çekip <tr class="SermayeRow"> satırlarını parse eder.
-    Ağ/parse hatası olursa boş liste döner (çağıran taraf bunu ele alır)."""
+def _fetch_page():
+    """Sayfayı TEK seferde çeker — hem sermaye artırımları hem yabancı
+    oranları tabloları aynı sayfanın HTML'inde (farklı sekmeler, JS ile
+    gizli/gösterili), bu yüzden ikinci bir ağ isteğine gerek yok."""
     resp = requests.get(PAGE_URL, headers=HEADERS, timeout=30)
     resp.raise_for_status()
-    soup = BeautifulSoup(resp.content, "html.parser")
+    return BeautifulSoup(resp.content, "html.parser")
 
+
+def parse_corporate_actions(soup):
+    """<tr class="SermayeRow"> satırlarını parse eder."""
     rows = soup.find_all("tr", class_="SermayeRow")
     results = []
     for tr in rows:
@@ -92,6 +107,41 @@ def fetch_corporate_actions():
     return results
 
 
+def parse_foreign_ratios(soup):
+    """<tbody id="yabanciOranlarTbody"> satırlarını POZİSYONA göre parse eder
+    (bu tabloda class isimleri yok, sıra sabit — ekran görüntüsüyle doğrulandı)."""
+    tbody = soup.find("tbody", id="yabanciOranlarTbody")
+    if tbody is None:
+        return []
+
+    results = []
+    for tr in tbody.find_all("tr"):
+        tds = tr.find_all("td")
+        if len(tds) < 4:
+            continue  # "Kayıt bulunamadı" gibi boş/placeholder satırlar
+
+        a_tag = tds[0].find("a")
+        symbol = (a_tag.text if a_tag else tds[0].text).strip()
+        if not symbol:
+            continue
+
+        results.append({
+            "symbol": symbol,
+            "close_price": _parse_tr_number(tds[1].text),
+            "foreign_ratio_prev": _parse_tr_number(tds[2].text),
+            "foreign_ratio": _parse_tr_number(tds[3].text),
+            "change_bp": _parse_tr_number(tds[4].text) if len(tds) > 4 else None,
+            "impact_pct": _parse_tr_number(tds[5].text) if len(tds) > 5 else None,
+        })
+    return results
+
+
+def fetch_corporate_actions():
+    """Geriye dönük uyumluluk için — sadece sermaye artırımları listesini döner."""
+    soup = _fetch_page()
+    return parse_corporate_actions(soup)
+
+
 def save_corporate_action(cur, stock_id, item):
     cur.execute(
         """
@@ -121,14 +171,42 @@ def save_corporate_action(cur, stock_id, item):
     )
 
 
+def save_foreign_ratio(cur, stock_id, item):
+    """fundamentals_snapshots.foreign_ratio'yu bu güvenilir kaynaktan günceller
+    (Screener'ın criteria_40'ı GARAN/KCHOL gibi hisselerde boş dönebiliyordu —
+    bu sayfa TÜM hisseleri kapsıyor, tek istekte)."""
+    cur.execute(
+        """
+        UPDATE fundamentals_snapshots SET
+          foreign_ratio = %s,
+          updated_at    = NOW()
+        WHERE stock_id = %s
+        """,
+        (item["foreign_ratio"], stock_id),
+    )
+    if cur.rowcount == 0:
+        cur.execute(
+            """
+            INSERT INTO fundamentals_snapshots (stock_id, foreign_ratio, updated_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT (stock_id) DO UPDATE SET
+              foreign_ratio = EXCLUDED.foreign_ratio,
+              updated_at    = NOW()
+            """,
+            (stock_id, item["foreign_ratio"]),
+        )
+
+
 def run_sync_corporate_actions():
     try:
-        items = fetch_corporate_actions()
+        soup = _fetch_page()
+        actions = parse_corporate_actions(soup)
+        foreign_ratios = parse_foreign_ratios(soup)
     except Exception as err:
-        print(f"❌ Sermaye artırımları/temettü sayfası çekilemedi: {err}")
-        return {"saved": 0, "skipped": 0}
+        print(f"❌ Sayfa çekilemedi: {err}")
+        return {"saved": 0, "skipped": 0, "foreign_saved": 0}
 
-    print(f"📅 {len(items)} sermaye artırımı/temettü kaydı bulundu, işleniyor...")
+    print(f"📅 {len(actions)} sermaye artırımı/temettü kaydı, {len(foreign_ratios)} yabancı oranı kaydı bulundu, işleniyor...")
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -136,7 +214,7 @@ def run_sync_corporate_actions():
             symbol_to_id = {symbol: stock_id for stock_id, symbol in cur.fetchall()}
 
             saved, skipped = 0, 0
-            for item in items:
+            for item in actions:
                 stock_id = symbol_to_id.get(item["symbol"])
                 if not stock_id:
                     skipped += 1
@@ -150,10 +228,25 @@ def run_sync_corporate_actions():
                     cur.execute("ROLLBACK TO SAVEPOINT sp_corp_action")
                     print(f"   ❌ {item['symbol']}: {err}")
 
+            foreign_saved, foreign_skipped = 0, 0
+            for item in foreign_ratios:
+                stock_id = symbol_to_id.get(item["symbol"])
+                if not stock_id or item["foreign_ratio"] is None:
+                    foreign_skipped += 1
+                    continue
+                try:
+                    cur.execute("SAVEPOINT sp_foreign_ratio")
+                    save_foreign_ratio(cur, stock_id, item)
+                    cur.execute("RELEASE SAVEPOINT sp_foreign_ratio")
+                    foreign_saved += 1
+                except Exception as err:
+                    cur.execute("ROLLBACK TO SAVEPOINT sp_foreign_ratio")
+                    print(f"   ❌ {item['symbol']} (yabancı oranı): {err}")
+
         conn.commit()
 
-    print(f"✅ Sermaye artırımları/temettü senkronizasyonu tamamlandı: {saved} kaydedildi, {skipped} eşleşmedi")
-    return {"saved": saved, "skipped": skipped}
+    print(f"✅ Tamamlandı: {saved} sermaye/temettü kaydı, {foreign_saved} yabancı oranı kaydı ({foreign_skipped} atlandı), {skipped} sembol eşleşmedi")
+    return {"saved": saved, "skipped": skipped, "foreign_saved": foreign_saved}
 
 
 if __name__ == "__main__":
