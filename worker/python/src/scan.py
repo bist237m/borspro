@@ -31,7 +31,9 @@ FILTERS = [
     ("IFTCCI5_GUNLUK",   iftcci5_kesme, "1d",  "1y"),
 ]
 
-MAX_WORKERS = 3  # TradingView 10 paralel worker'da 429 (rate limit) döndürüyor.
+MAX_WORKERS = 8  # Hız sınırının GERÇEK freni net_utils.MIN_INTERVAL (global,
+                 # thread sayısından bağımsız). Worker sayısı sadece ağ gecikmesini
+                 # örtüştürmeye yarıyor, o yüzden yüksek tutmak güvenli.
                   # Burada durum history.py'den DAHA ağır: hisse başına 5 zaman
                   # dilimi indiriliyor (FETCH_SPEC), yani 5 kat istek. Düşürüldü;
                   # ayrıca her istek net_utils.throttled_retry'dan geçiyor.

@@ -19,8 +19,10 @@ on:
     - cron: '20 15 * * 1-5'        # TSİ 18:20
 
     # --- DİĞER PERİYODİK GÖREVLER ---
-    # Piyasa saatlerinde 2 saatte bir (TSİ 10-16 arası) — Filtre 5/6
-    - cron: '0 7-13/2 * * 1-5'     # TSİ 10,12,14,16
+    # NOT: Eskiden burada 2 saatte bir "extra_scan" (Filtre 5/6) vardı. Kaldırıldı:
+    # extra_scan.py artık run_full_scan() çağırıyor, yani --scan ile BİREBİR aynı
+    # işi yapıyor. Ek filtreler zaten her --scan'e dahil (include_extra=True),
+    # dolayısıyla o cron tam taramayı gereksizce ikinci kez çalıştırıyordu.
     # Salı-Cumartesi TSİ 02:00 — Geçmiş veri
     # DİKKAT: TSİ 02:00, bir önceki günün 23:00 UTC'sine denk gelir — bu yüzden
     # gün aralığı da bir gün geriye kayıyor (TSİ Sal-Cmt = UTC Pzt-Cum).
@@ -65,6 +67,9 @@ concurrency:
 jobs:
   tarama:
     runs-on: ubuntu-latest
+    # Tarama normalde ~10 dk sürüyor. Bir şey ters giderse (API yanıt vermiyor,
+    # sonsuz retry) koşu 6 saatlik GitHub tavanına kadar dakika yakmasın.
+    timeout-minutes: 25
     steps:
       - name: Kodu çek
         uses: actions/checkout@v4
@@ -87,7 +92,6 @@ jobs:
             case "${{ github.event.schedule }}" in
               '30,45 6 * * 1-5'|'*/15 7-14 * * 1-5'|'0,15,30 15 * * 1-5') ACTION="sync" ;;
               '55 6 * * 1-5'|'20,50 7-14 * * 1-5'|'20 15 * * 1-5')        ACTION="scan" ;;
-              '0 7-13/2 * * 1-5')   ACTION="extra_scan" ;;
               '0 23 * * 1-5')       ACTION="history" ;;
               '0 5 * * 1-5')        ACTION="fundamentals" ;;
               '0 1,5,9,13,17,21 * * *') ACTION="news" ;;

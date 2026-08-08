@@ -13,7 +13,7 @@ from db import query, get_connection
 from net_utils import throttled_retry
 import psycopg2.extras
 
-MAX_WORKERS = 3  # TradingView 10 paralel isteği 429 (rate limit) ile karşılıyor
+MAX_WORKERS = 8  # Gerçek fren net_utils.MIN_INTERVAL (global hız sınırlayıcı)
                  # ve bu bazen "invalid symbol" gibi görünen ikincil hatalara da
                  # yol açıyor (aşırı yüklenmiş oturumlar). Düşürüldü; ayrıca her
                  # istek net_utils.throttled_retry'dan geçiyor.

@@ -21,8 +21,18 @@ import threading
 _rate_lock = threading.Lock()
 _last_call = [0.0]
 
-MIN_INTERVAL = 1   # saniye — istekler arası minimum boşluk
-MAX_RETRIES  =5
+# AYAR NOTU: Orijinal 429 fırtınası büyük ölçüde history.py'deki dict bug'ından
+# kaynaklanıyordu — tüm istekler anında hata verdiği için doğal yavaşlama olmadan
+# saniyede onlarca istek gidiyordu. Bug düzeldikten sonra 0.4sn + 3 worker ile
+# 579 hisse HİÇ 429 almadan tamamlandı. Gerçek istekler zaten 0.5-2sn sürüyor,
+# bu da kendiliğinden pacing sağlıyor.
+#
+# 0.2sn = teorik tavan 5 istek/sn. scan (579 hisse x 5 zaman dilimi = 2895
+# istek) ~10 dakikada biter — 30 dakikalık cron aralığına rahat sığar.
+# 429 görmeye başlarsan ilk önce bunu 0.3-0.4'e çıkar.
+MIN_INTERVAL = 0.2
+MAX_RETRIES  = 4
+BACKOFF_CAP  = 30    # saniye — üstel bekleme bunu geçmesin (2**9 = 512sn olurdu)
 
 
 def throttle():
@@ -51,7 +61,7 @@ def throttled_retry(fn, max_retries: int = MAX_RETRIES):
         except Exception as err:
             last_err = err
             if is_rate_limit_error(err):
-                time.sleep((2 ** attempt) + random.uniform(0, 1))
+                time.sleep(min(2 ** attempt, BACKOFF_CAP) + random.uniform(0, 1))
                 continue
             # 429 furyası sırasında sahte "invalid symbol" hataları çıkabiliyor —
             # bir kere daha şans ver, ısrar ederse gerçek hatadır.
