@@ -21,8 +21,8 @@ import threading
 _rate_lock = threading.Lock()
 _last_call = [0.0]
 
-MIN_INTERVAL = 2   # saniye — istekler arası minimum boşluk
-MAX_RETRIES  =10
+MIN_INTERVAL = 1   # saniye — istekler arası minimum boşluk
+MAX_RETRIES  =5
 
 
 def throttle():
