@@ -15,3 +15,7 @@ worker/python/src/__pycache__/
 worker/.env
 api/.env
 **/.env
+__pycache__/
+*.pyc
+.env
+venv/

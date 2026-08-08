@@ -2,6 +2,7 @@
 # Giriş noktası. Eski Node worker'daki index.js'in Python karşılığı.
 #
 # Kullanım:
+#   python main.py --seed            → BIST hisse listesini (XUTUM) tazele — yeni halka arzları ekler
 #   python main.py --sync            → Fiyatları hemen güncelle
 #   python main.py --scan            → Tüm filtreleri (ana + ek) tek geçişte tara
 #   python main.py --history         → 1 yıllık geçmiş veriyi çek
@@ -24,13 +25,18 @@ from kriterleri_bul import tum_kriterleri_kaydet
 from mali_tablolar import run_fetch_mali_tablolar
 from sector_index import run_sync_sector_index
 from corporate_actions import run_sync_corporate_actions
+from seed_stocks import run_seed_stocks
 
 print("🚀 Borsa Pro Worker (Python) başladı\n")
 
 args = sys.argv[1:]
 
 if not args:
-    print("⚠️  Hiçbir bayrak verilmedi. Kullanım: --sync | --scan | --history | --extra-scan | --fundamentals | --news | --kriterleri | --balance-sheet | --sector-index | --corporate-actions")
+    print("⚠️  Hiçbir bayrak verilmedi. Kullanım: --seed | --sync | --scan | --history | --extra-scan | --fundamentals | --news | --kriterleri | --balance-sheet | --sector-index | --corporate-actions")
+
+# --seed en önce: yeni eklenen hisseler aynı çalıştırmadaki sync/scan'e de dahil olsun.
+if "--seed" in args:
+    run_seed_stocks()
 
 if "--sync" in args:
     run_sync_quotes()

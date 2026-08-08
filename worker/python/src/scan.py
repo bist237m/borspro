@@ -14,6 +14,7 @@ from custom_filters import (
     compute_snapshot_values,
 )
 from extra_filters import filter_ift5_ema_macd, filter_ema120, fetch_bulk_scalars
+from net_utils import throttled_retry
 
 FILTER5_TIMEFRAMES = ["4h", "1d", "1wk"]
 FILTER6_TIMEFRAMES = ["2h", "30m"]
@@ -30,7 +31,10 @@ FILTERS = [
     ("IFTCCI5_GUNLUK",   iftcci5_kesme, "1d",  "1y"),
 ]
 
-MAX_WORKERS = 10  # aynı anda kaç hisse işlensin
+MAX_WORKERS = 3  # TradingView 10 paralel worker'da 429 (rate limit) döndürüyor.
+                  # Burada durum history.py'den DAHA ağır: hisse başına 5 zaman
+                  # dilimi indiriliyor (FETCH_SPEC), yani 5 kat istek. Düşürüldü;
+                  # ayrıca her istek net_utils.throttled_retry'dan geçiyor.
 
 
 def save_signal(cur, stock_id, triggered, current_price):
@@ -54,15 +58,28 @@ def save_signal(cur, stock_id, triggered, current_price):
 def _apply_price_update(cur, tracked_id, entry_price, max_price, m5, m10, m20, m30, current_price):
     """Tek bir tracked_signals satırının fiyat/değişim/max/milestone alanlarını günceller.
     filter_types'a DOKUNMAZ — hem track_stock (yeni tetikleme) hem de
-    refresh_tracked_prices (filtre tetiklenmese bile periyodik güncelleme) bunu paylaşır."""
+    refresh_tracked_prices (filtre tetiklenmese bile periyodik güncelleme) bunu paylaşır.
+
+    ÖNEMLİ: change_pct ANLIK bir değer — fiyat dalgalandıkça yukarı/aşağı oynar.
+    Raporlama amaçlı "gerçekleşen getiri" ayrı tutulur: %10'a İLK ulaşıldığı anda
+    current_price/change_pct realized_price/realized_pct'e DONDURULUR ve bir daha
+    değişmez — sanki o noktada kâr realize edilmiş gibi. Bu, is_active/milestone
+    takibini etkilemez; sadece raporlardaki "ortalama getiri" bu dondurulmuş
+    değeri kullanır (bkz. signals.js /performance)."""
     entry_price_f = float(entry_price) if entry_price else current_price
     change_pct = ((current_price - entry_price_f) / entry_price_f * 100) if entry_price_f else 0
     new_max = max(float(max_price or 0), current_price)
 
+    target_hit_now = False
     if m5  is None and change_pct >= 5:  m5  = "NOW()"
-    if m10 is None and change_pct >= 10: m10 = "NOW()"
+    if m10 is None and change_pct >= 10:
+        m10 = "NOW()"
+        target_hit_now = True  # %10'a İLK kez bu güncellemede ulaşıldı -> getiriyi burada dondur
     if m20 is None and change_pct >= 20: m20 = "NOW()"
     if m30 is None and change_pct >= 30: m30 = "NOW()"
+
+    realized_sql = "realized_price = %s, realized_pct = %s," if target_hit_now else ""
+    realized_params = [current_price, change_pct] if target_hit_now else []
 
     cur.execute(
         f"""
@@ -76,10 +93,11 @@ def _apply_price_update(cur, tracked_id, entry_price, max_price, m5, m10, m20, m
           milestone_10_at = {'NOW()' if m10 == 'NOW()' else 'milestone_10_at'},
           milestone_20_at = {'NOW()' if m20 == 'NOW()' else 'milestone_20_at'},
           milestone_30_at = {'NOW()' if m30 == 'NOW()' else 'milestone_30_at'},
+          {realized_sql}
           updated_at     = NOW()
         WHERE id = %s
         """,
-        (current_price, change_pct, new_max, current_price, tracked_id),
+        (current_price, change_pct, new_max, current_price, *realized_params, tracked_id),
     )
 
 
@@ -224,12 +242,17 @@ FETCH_SPEC = {
 
 
 def fetch_all_timeframes(symbol: str) -> dict:
-    """Bir hisse için gereken TÜM zaman dilimlerini tek seferde indirir."""
+    """Bir hisse için gereken TÜM zaman dilimlerini tek seferde indirir.
+    Her istek net_utils.throttled_retry'dan geçer — global hız sınırlayıcı +
+    429'da üstel bekleme ile tekrar deneme. Bir zaman dilimi tüm denemelerde
+    başarısız olursa None döner (o filtre False sayılır, tarama devam eder)."""
     ticker = bp.Ticker(symbol)
     out = {}
     for tf, period in FETCH_SPEC.items():
         try:
-            out[tf] = ticker.history(period=period, interval=tf)
+            out[tf] = throttled_retry(
+                lambda p=period, i=tf: ticker.history(period=p, interval=i)
+            )
         except Exception:
             out[tf] = None
     return out

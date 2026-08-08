@@ -73,6 +73,34 @@ function MilestoneFunnel({ s }) {
   );
 }
 
+// %10'u gören sinyallerin kaçı sonradan %20/%30'a da devam etmiş —
+// "%10'da çıksam ne kaçırırdım?" sorusunun cevabı. API'de reached_10 > 0
+// ise anlamlı, aksi halde hiç render etmiyoruz.
+function ContinuationStats({ s }) {
+  if (!s.reached_10) return null;
+  const pct20 = s.continuation_10_to_20_pct;
+  const pct30 = s.continuation_10_to_30_pct;
+  if (pct20 == null && pct30 == null) return null;
+
+  const Chip = ({ label, pct }) => pct == null ? null : (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 6,
+      fontSize: 11, padding: "4px 10px", borderRadius: 20,
+      background: "var(--bg)", border: "1px solid var(--border)",
+    }}>
+      <span style={{ color: "var(--text-3)" }}>{label}</span>
+      <b style={{ fontFamily: "var(--font-m)", color: "var(--accent)" }}>%{pct}</b>
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+      <Chip label="%10'u görüp %20'ye devam eden" pct={pct20} />
+      <Chip label="%10'u görüp %30'a devam eden" pct={pct30} />
+    </div>
+  );
+}
+
 function Spinner() {
   return (
     <div style={{ height: 140, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
@@ -327,10 +355,11 @@ function FilterPerformanceSection() {
                   <WinRateBar rate={s.win_rate} />
                   <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 12 }}>
                     <div><span style={{ color: "var(--text-3)" }}>Toplam örnek: </span><b style={{ fontFamily: "var(--font-m)" }}>{s.total}</b></div>
-                    <div><span style={{ color: "var(--text-3)" }}>Ort. getiri: </span><b style={{ fontFamily: "var(--font-m)", color: s.avg_change_pct >= 0 ? "var(--green)" : "var(--red)" }}>{s.avg_change_pct >= 0 ? "+" : ""}{fmt(s.avg_change_pct)}%</b></div>
+                    <div title="Bir sinyal %10'a ulaştıysa o andaki değer sabitlenir; ulaşmadıysa anlık değişim kullanılır."><span style={{ color: "var(--text-3)" }}>Ort. getiri: </span><b style={{ fontFamily: "var(--font-m)", color: s.avg_change_pct >= 0 ? "var(--green)" : "var(--red)" }}>{s.avg_change_pct >= 0 ? "+" : ""}{fmt(s.avg_change_pct)}%</b></div>
                     <div><span style={{ color: "var(--text-3)" }}>%5'e ort. gün: </span><b style={{ fontFamily: "var(--font-m)" }}>{s.avg_days_to_5 != null ? fmt(s.avg_days_to_5, 1) : "—"}</b></div>
                     <div><span style={{ color: "var(--text-3)" }}>%10'a ort. gün: </span><b style={{ fontFamily: "var(--font-m)" }}>{s.avg_days_to_10 != null ? fmt(s.avg_days_to_10, 1) : "—"}</b></div>
                   </div>
+                  <ContinuationStats s={s} />
                   <MilestoneFunnel s={s} />
                 </div>
 
@@ -342,24 +371,32 @@ function FilterPerformanceSection() {
                       <table style={{ width: "100%", borderCollapse: "collapse" }}>
                         <thead>
                           <tr>
-                            <Th>Hisse</Th><Th>Giriş Tarihi</Th><Th>Güncel Değişim</Th>
+                            <Th>Hisse</Th><Th>Giriş Tarihi</Th><Th>Getiri</Th>
                             <Th>%5'e gün</Th><Th>%10'a gün</Th><Th>%20'ye gün</Th><Th>%30'a gün</Th>
                           </tr>
                         </thead>
                         <tbody>
-                          {[...s.items].sort(byEntryDateDesc).map((it, i) => (
+                          {[...s.items].sort(byEntryDateDesc).map((it, i) => {
+                            const pct = it.is_realized ? Number(it.realized_pct) : Number(it.change_pct);
+                            return (
                             <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
                               <Td style={{ fontFamily: "var(--font)", fontWeight: 600 }}>{it.symbol}{isNewEntry(it.entry_date) && <NewBadge />}</Td>
                               <Td>{fmtDate(it.entry_date)}</Td>
-                              <Td style={{ color: Number(it.change_pct) >= 0 ? "var(--green)" : "var(--red)" }}>
-                                {Number(it.change_pct) >= 0 ? "+" : ""}{fmt(it.change_pct)}%
+                              <Td style={{ color: pct >= 0 ? "var(--green)" : "var(--red)" }}>
+                                {pct >= 0 ? "+" : ""}{fmt(pct)}%
+                                {it.is_realized && (
+                                  <span title="%10'a ulaştığı andaki getiri sabitlendi" style={{
+                                    marginLeft: 6, fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 4,
+                                    background: "var(--accent-bg)", color: "var(--accent)",
+                                  }}>SABİT</span>
+                                )}
                               </Td>
                               <Td>{it.days_to_5  ?? "—"}</Td>
                               <Td>{it.days_to_10 ?? "—"}</Td>
                               <Td>{it.days_to_20 ?? "—"}</Td>
                               <Td>{it.days_to_30 ?? "—"}</Td>
                             </tr>
-                          ))}
+                          );})}
                         </tbody>
                       </table>
                     )}

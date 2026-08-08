@@ -28,6 +28,7 @@ router.get("/performance", authenticate, async (req, res, next) => {
          unnest(string_to_array(ts.filter_types, ',')) AS filter_code,
          s.symbol, s.name,
          ts.change_pct, ts.entry_date,
+         ts.realized_price, ts.realized_pct,
          ts.milestone_5_at, ts.milestone_10_at, ts.milestone_20_at, ts.milestone_30_at
        FROM tracked_signals ts
        JOIN stocks s ON s.id = ts.stock_id
@@ -35,6 +36,9 @@ router.get("/performance", authenticate, async (req, res, next) => {
     );
 
     const daysBetween = (a, b) => a && b ? Math.round((new Date(a) - new Date(b)) / 86400000) : null;
+    // %10'a ilk ulaşıldığı anda dondurulan getiri varsa ONU, yoksa anlık
+    // change_pct'i kullan — "%10'da kâr realize ettim" varsayımıyla raporlama.
+    const effectivePct = (i) => i.realized_pct != null ? Number(i.realized_pct) : Number(i.change_pct || 0);
 
     const grouped = {};
     for (const row of rows) {
@@ -51,13 +55,19 @@ router.get("/performance", authenticate, async (req, res, next) => {
 
     const result = Object.entries(grouped).map(([code, items]) => {
       const total = items.length;
-      const winners = items.filter(i => Number(i.change_pct) > 0).length;
-      const avgChange = items.reduce((s, i) => s + Number(i.change_pct || 0), 0) / total;
+      const winners = items.filter(i => effectivePct(i) > 0).length;
+      const avgChange = items.reduce((s, i) => s + effectivePct(i), 0) / total;
 
       const avgOf = (field) => {
         const vals = items.filter(i => i[field] != null).map(i => i[field]);
         return vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10 : null;
       };
+
+      // %10'a ulaşanlar arasında sonradan %20/%30'a da devam edenlerin oranı
+      // ("%10'da çıksam ne kaçırmış olurdum?" sorusunun cevabı)
+      const reached10Items = items.filter(i => i.milestone_10_at);
+      const from10To20 = reached10Items.filter(i => i.milestone_20_at).length;
+      const from10To30 = reached10Items.filter(i => i.milestone_30_at).length;
 
       return {
         filter_code: code,
@@ -72,11 +82,18 @@ router.get("/performance", authenticate, async (req, res, next) => {
         reached_10: items.filter(i => i.milestone_10_at).length,
         reached_20: items.filter(i => i.milestone_20_at).length,
         reached_30: items.filter(i => i.milestone_30_at).length,
+        // Koşullu devam oranları: %10'u görenlerin kaçı %20/%30'a devam etti
+        continuation_10_to_20_pct: reached10Items.length
+          ? Math.round((from10To20 / reached10Items.length) * 100) : null,
+        continuation_10_to_30_pct: reached10Items.length
+          ? Math.round((from10To30 / reached10Items.length) * 100) : null,
         items: items.map(i => ({
           symbol: i.symbol,
           name: i.name,
           entry_date: i.entry_date,
           change_pct: i.change_pct,
+          realized_pct: i.realized_pct,
+          is_realized: i.realized_pct != null,
           days_to_5: i.days_to_5,
           days_to_10: i.days_to_10,
           days_to_20: i.days_to_20,
