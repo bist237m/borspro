@@ -118,9 +118,21 @@ router.post("/stocks/:symbol/comment", authenticate, async (req, res, next) => {
     const { rows: fundRows } = await query("SELECT * FROM fundamentals_snapshots WHERE stock_id = $1", [stock.id]);
     const f = fundRows[0] || {};
 
+    // KAP haberleri — SON 14 GÜN.
+    // Eskiden sadece "LIMIT 3" vardı, tarih filtresi yoktu: çok bildirim yapan
+    // hisselerde 3 haber tek güne sığıyor (eksik resim), hiç bildirim yapmayan
+    // hisselerde ise aylar önceki haberler "güncel" gibi AI'ya gidiyordu
+    // (yanıltıcı). Şimdi sabit bir zaman penceresi var; adet tavanı da
+    // prompt'un şişmemesi için yüksek tutuldu.
+    const NEWS_WINDOW_DAYS = 14;
     const { rows: newsRows } = await query(
-      "SELECT title FROM stock_news WHERE stock_id = $1 ORDER BY published_at DESC LIMIT 3",
-      [stock.id]
+      `SELECT title, published_at
+       FROM stock_news
+       WHERE stock_id = $1
+         AND published_at >= NOW() - ($2 || ' days')::interval
+       ORDER BY published_at DESC
+       LIMIT 15`,
+      [stock.id, NEWS_WINDOW_DAYS]
     );
 
     // Sektörel Ortalamaları Dinamik Hesaplama
@@ -232,7 +244,10 @@ ${activeFilterCodes.length ? activeFilterCodes.map(c => {
 }).join("\n") : "- Şu an hiçbir özel filtre tetiklenmiyor."}
 
 5. KAP HABERLERİ VE BİLANÇO:
-${newsRows.length ? newsRows.map(n => `- ${n.title}`).join("\n") : "- Güncel haber bulunamadı."}
+KAP bildirimleri (son ${NEWS_WINDOW_DAYS} gün):
+${newsRows.length
+  ? newsRows.map(n => `- [${new Date(n.published_at).toLocaleDateString("tr-TR")}] ${n.title}`).join("\n")
+  : `- Son ${NEWS_WINDOW_DAYS} günde KAP bildirimi yok. (Haber yokluğu olumsuz bir sinyal DEĞİLDİR — çoğu şirket her hafta bildirim yapmaz.)`}
 ${balanceSheet ? `\nBİLANÇO YAPISI (${balanceSheet.financialGroup} formatı, Dönem: ${balanceSheet.period}${balanceSheet.prevPeriod ? `, karşılaştırma dönemi: ${balanceSheet.prevPeriod}` : ""}):\n${balanceSheet.text}` : ""}
 
 SENDEN İSTEDİKLERİM (Aşağıdaki JSON şemasına kesinlikle sadık kal):
